@@ -24,7 +24,7 @@ class ConversationState:
 
 class ParkingChatbot:
     def __init__(self) -> None:
-        self.vector_store = build_vector_store()
+        self.vector_store = build_vector_store(insert_documents=False)
 
     def detect_intent(self, question: str) -> str:
         lowered = question.lower()
