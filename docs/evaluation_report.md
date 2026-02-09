@@ -1,21 +1,25 @@
-# Evaluation Report (Sample)
+# Evaluation Report
 
-## Dataset
+## Run Metadata
 
-- Source: `eval/qa_dataset.json`
-- Size: 10 QA pairs
-- Coverage: location, booking rules, amenities, payments, support
+- Run time (UTC): 2026-02-09T13:35:48.534191+00:00
+- Dataset: `eval/qa_dataset.json`
+- Dataset size: 10
+- K: 3
+- Vector backend: faiss
+- Embeddings provider: fake
+- LLM provider: echo
+- Results JSON: `eval/results/20260209T133548Z_results.json`
 
-## Metrics (Example Run)
+## Metrics
 
 | Metric | Value |
 | --- | --- |
-| Recall@3 | 0.70 |
-| Precision@3 | 0.60 |
-| Latency p50 | 1.5 ms |
-| Latency p95 | 0.0 ms |
+| Recall@3 | 0.5000 |
+| Precision@3 | 0.1667 |
+| Latency p50 | 0.08 ms |
+| Latency p95 | 0.00 ms |
 
 ## Notes
 
-- Metrics use demo `FakeEmbeddings` + FAISS.
-- Replace embeddings + vector DB for production reliability.
+- Report generated via `python -m chatbot_parking.eval.evaluate --write-report`.

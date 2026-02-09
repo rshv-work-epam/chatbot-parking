@@ -4,7 +4,7 @@
 
 - Measure average latency for retrieval + response generation.
 - Load test `/record` endpoint for sustained writes.
-- Run `python -m chatbot_parking.eval.evaluate` to compute sample metrics from `eval/qa_dataset.json`.
+- Run `python -m chatbot_parking.eval.evaluate --write-report` to compute metrics from `eval/qa_dataset.json` and update `docs/evaluation_report.md`.
 
 ## Retrieval Accuracy
 

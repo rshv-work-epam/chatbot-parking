@@ -11,6 +11,7 @@ from langchain_core.language_models.llms import LLM
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import PromptTemplate
 
+from chatbot_parking.config import get_settings
 from chatbot_parking.guardrails import contains_sensitive_data, redact_sensitive
 from chatbot_parking.static_docs import STATIC_DOCUMENTS
 
@@ -34,13 +35,43 @@ def _prepare_documents() -> list[Document]:
     return documents
 
 
-def build_vector_store(embeddings: Embeddings | None = None) -> FAISS:
+def _build_embeddings() -> Embeddings:
+    settings = get_settings()
+    if settings.embeddings_provider == "fake":
+        return FakeEmbeddings(size=256)
+    if settings.embeddings_provider == "openai":
+        from langchain_openai import OpenAIEmbeddings
+
+        return OpenAIEmbeddings(api_key=settings.openai_api_key)
+    if settings.embeddings_provider == "hf":
+        from langchain_community.embeddings import HuggingFaceEmbeddings
+
+        return HuggingFaceEmbeddings(model_name=settings.embeddings_model)
+    raise ValueError(f"Unsupported embeddings provider: {settings.embeddings_provider}")
+
+
+def build_vector_store(embeddings: Embeddings | None = None):
+    settings = get_settings()
     docs = _prepare_documents()
-    embedder = embeddings or FakeEmbeddings(size=256)
+    embedder = embeddings or _build_embeddings()
+
+    if settings.vector_backend == "weaviate":
+        import weaviate
+        from langchain_community.vectorstores import Weaviate
+
+        client = weaviate.Client(settings.weaviate_url)
+        return Weaviate.from_documents(
+            docs,
+            embedder,
+            client=client,
+            index_name=settings.weaviate_index,
+            text_key="text",
+        )
+
     return FAISS.from_documents(docs, embedder)
 
 
-def retrieve(query: str, store: FAISS, k: int = 3) -> RetrievalResult:
+def retrieve(query: str, store, k: int = 3) -> RetrievalResult:
     docs = store.similarity_search(query, k=k)
     public_docs = [doc for doc in docs if doc.metadata.get("sensitivity") != "private"]
     return RetrievalResult(documents=public_docs)
@@ -58,9 +89,31 @@ class EchoLLM(LLM):
         return "echo"
 
 
+def _build_llm() -> LLM:
+    settings = get_settings()
+    if settings.llm_provider == "echo":
+        return EchoLLM()
+    if settings.llm_provider == "openai":
+        from langchain_openai import ChatOpenAI
+
+        return ChatOpenAI(model=settings.llm_model, api_key=settings.openai_api_key)
+    if settings.llm_provider == "azure_openai":
+        from langchain_openai import AzureChatOpenAI
+
+        if not settings.azure_openai_endpoint or not settings.azure_openai_deployment:
+            raise ValueError("Azure OpenAI endpoint and deployment must be set.")
+        return AzureChatOpenAI(
+            azure_endpoint=settings.azure_openai_endpoint,
+            api_key=settings.azure_openai_api_key,
+            api_version=settings.azure_openai_api_version,
+            deployment_name=settings.azure_openai_deployment,
+        )
+    raise ValueError(f"Unsupported LLM provider: {settings.llm_provider}")
+
+
 def generate_answer(question: str, context: str, dynamic_info: str) -> str:
     prompt = PromptTemplate.from_template(
         "Context:\n{context}\n\nDynamic info:\n{dynamic}\n\nQuestion: {question}\nAnswer:"
     )
-    chain = prompt | EchoLLM() | StrOutputParser()
+    chain = prompt | _build_llm() | StrOutputParser()
     return chain.invoke({"question": question, "context": context, "dynamic": dynamic_info})

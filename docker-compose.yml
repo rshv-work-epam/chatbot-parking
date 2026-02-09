@@ -6,6 +6,8 @@ services:
     command: uvicorn chatbot_parking.admin_api:app --host 0.0.0.0 --port 8000
     ports:
       - "8000:8000"
+    environment:
+      ADMIN_API_TOKEN: change-me
 
   mcp_server:
     build: .
@@ -14,3 +16,24 @@ services:
       MCP_API_TOKEN: change-me
     ports:
       - "8001:8001"
+
+  weaviate:
+    image: semitechnologies/weaviate:1.25.4
+    ports:
+      - "8080:8080"
+    environment:
+      QUERY_DEFAULTS_LIMIT: 25
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
+      PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
+      DEFAULT_VECTORIZER_MODULE: "none"
+      CLUSTER_HOSTNAME: "weaviate"
+    volumes:
+      - weaviate_data:/var/lib/weaviate
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/v1/.well-known/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  weaviate_data:
