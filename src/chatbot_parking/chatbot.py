@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from chatbot_parking.dynamic_data import get_dynamic_info
-from chatbot_parking.guardrails import filter_sensitive
+from chatbot_parking.guardrails import filter_sensitive, safe_output
 from chatbot_parking.rag import build_vector_store, retrieve
 
 
@@ -26,6 +26,13 @@ class ParkingChatbot:
     def __init__(self) -> None:
         self.vector_store = build_vector_store()
 
+    def detect_intent(self, question: str) -> str:
+        lowered = question.lower()
+        booking_keywords = ["book", "reserve", "reservation", "броню", "заброню"]
+        if any(keyword in lowered for keyword in booking_keywords):
+            return "booking"
+        return "info"
+
     def answer_question(self, question: str) -> str:
         dynamic = get_dynamic_info()
         retrieval = retrieve(question, self.vector_store)
@@ -39,7 +46,7 @@ class ParkingChatbot:
                 f"Hours: {dynamic.working_hours}. Pricing: {dynamic.pricing}."
             ),
         ]
-        return "\n".join(response_parts)
+        return safe_output("\n".join(response_parts))
 
     def start_reservation(self) -> ConversationState:
         return ConversationState(pending_field="name")

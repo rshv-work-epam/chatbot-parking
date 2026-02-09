@@ -1,0 +1,42 @@
+[
+  {
+    "question": "Where is the parking facility located?",
+    "expected_ids": ["parking_overview"]
+  },
+  {
+    "question": "How do I enter the garage?",
+    "expected_ids": ["location_directions"]
+  },
+  {
+    "question": "Do you offer EV charging?",
+    "expected_ids": ["facility_features"]
+  },
+  {
+    "question": "What details do you need to reserve a space?",
+    "expected_ids": ["booking_process"]
+  },
+  {
+    "question": "Are there rules about arrival time?",
+    "expected_ids": ["rules"]
+  },
+  {
+    "question": "How can I pay for parking?",
+    "expected_ids": ["payments"]
+  },
+  {
+    "question": "Can I cancel a reservation?",
+    "expected_ids": ["faq_cancellation"]
+  },
+  {
+    "question": "Where can I get support?",
+    "expected_ids": ["support_contacts"]
+  },
+  {
+    "question": "What amenities are available?",
+    "expected_ids": ["facility_features"]
+  },
+  {
+    "question": "What is the address?",
+    "expected_ids": ["parking_overview"]
+  }
+]
