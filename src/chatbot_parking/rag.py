@@ -50,7 +50,7 @@ def _build_embeddings() -> Embeddings:
     raise ValueError(f"Unsupported embeddings provider: {settings.embeddings_provider}")
 
 
-def build_vector_store(embeddings: Embeddings | None = None):
+def build_vector_store(embeddings: Embeddings | None = None, insert_documents: bool = True):
     settings = get_settings()
     docs = _prepare_documents()
     embedder = embeddings or _build_embeddings()
@@ -60,12 +60,19 @@ def build_vector_store(embeddings: Embeddings | None = None):
         from langchain_community.vectorstores import Weaviate
 
         client = weaviate.Client(settings.weaviate_url)
-        return Weaviate.from_documents(
-            docs,
-            embedder,
+        if insert_documents:
+            return Weaviate.from_documents(
+                docs,
+                embedder,
+                client=client,
+                index_name=settings.weaviate_index,
+                text_key="text",
+            )
+        return Weaviate(
             client=client,
             index_name=settings.weaviate_index,
             text_key="text",
+            embedding=embedder,
         )
 
     return FAISS.from_documents(docs, embedder)

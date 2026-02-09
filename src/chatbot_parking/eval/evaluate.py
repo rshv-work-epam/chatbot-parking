@@ -22,7 +22,7 @@ def load_dataset() -> list[dict]:
 
 
 def evaluate(k: int = 3) -> dict:
-    store = build_vector_store()
+    store = build_vector_store(insert_documents=False)
     dataset = load_dataset()
 
     recalls: list[float] = []
