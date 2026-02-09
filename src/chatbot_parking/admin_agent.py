@@ -18,15 +18,23 @@ class AdminDecision:
     notes: Optional[str] = None
 
 
+def _build_headers() -> dict:
+    headers = {"Content-Type": "application/json"}
+    token = os.getenv("ADMIN_API_TOKEN")
+    if token:
+        headers["x-api-token"] = token
+    return headers
+
+
 def _post_json(url: str, payload: dict) -> dict:
     data = json.dumps(payload).encode("utf-8")
-    req = request.Request(url, data=data, headers={"Content-Type": "application/json"})
+    req = request.Request(url, data=data, headers=_build_headers())
     with request.urlopen(req, timeout=5) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
 def _get_json(url: str) -> dict:
-    req = request.Request(url, method="GET")
+    req = request.Request(url, method="GET", headers=_build_headers())
     with request.urlopen(req, timeout=5) as response:
         return json.loads(response.read().decode("utf-8"))
 
