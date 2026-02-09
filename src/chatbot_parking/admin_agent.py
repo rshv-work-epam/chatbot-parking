@@ -1,4 +1,4 @@
-"""Human-in-the-loop admin agent simulation."""
+"""Human-in-the-loop admin agent simulation with LangChain tool wrapper."""
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -7,6 +7,8 @@ import os
 import time
 from typing import Optional
 from urllib import request
+
+from langchain_core.tools import tool
 
 from chatbot_parking.chatbot import ReservationRequest
 
@@ -97,3 +99,23 @@ def request_admin_approval(reservation: ReservationRequest) -> AdminDecision:
 
     decided_at = datetime.now(timezone.utc).isoformat()
     return AdminDecision(approved=True, decided_at=decided_at, notes="Auto-approved for demo")
+
+
+@tool
+def request_admin_approval_tool(
+    name: str, surname: str, car_number: str, reservation_period: str
+) -> dict:
+    """LangChain tool wrapper for admin approval of a reservation."""
+    decision = request_admin_approval(
+        ReservationRequest(
+            name=name,
+            surname=surname,
+            car_number=car_number,
+            reservation_period=reservation_period,
+        )
+    )
+    return {
+        "approved": decision.approved,
+        "decided_at": decision.decided_at,
+        "notes": decision.notes,
+    }

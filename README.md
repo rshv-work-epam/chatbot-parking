@@ -3,7 +3,7 @@
 This project provides a reference implementation of a parking reservation chatbot using LangChain + LangGraph with a RAG-based architecture. The solution includes:
 
 - A RAG-powered chatbot for information retrieval and reservation intake.
-- A human-in-the-loop admin agent stub.
+- A human-in-the-loop admin tool/agent stub built with LangChain tools.
 - A FastAPI MCP-style server that records approved reservations.
 - A LangGraph orchestration pipeline that wires the workflow.
 
@@ -77,7 +77,7 @@ Results are saved in `eval/results/` and `docs/evaluation_report.md` is updated.
 
 - `src/chatbot_parking/chatbot.py`: Core chatbot logic and reservation intake.
 - `src/chatbot_parking/rag.py`: Vector store setup and retrieval.
-- `src/chatbot_parking/admin_agent.py`: Human-in-the-loop approval stub.
+- `src/chatbot_parking/admin_agent.py`: LangChain tool-backed human-in-the-loop approval stub.
 - `src/chatbot_parking/admin_api.py`: Admin REST API for approve/deny actions.
 - `src/chatbot_parking/mcp_server.py`: Reservation recording server.
 - `src/chatbot_parking/mcp_client.py`: Client for recording reservations via MCP.
