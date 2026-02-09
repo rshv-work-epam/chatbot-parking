@@ -29,7 +29,22 @@ def record_reservation(
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     approval_time = record.approval_time or datetime.now(timezone.utc).isoformat()
-    line = f"{record.name} | {record.car_number} | {record.reservation_period} | {approval_time}\n"
-    DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
-    DATA_PATH.write_text(DATA_PATH.read_text() + line if DATA_PATH.exists() else line)
+    append_reservation_record(
+        name=record.name,
+        car_number=record.car_number,
+        reservation_period=record.reservation_period,
+        approval_time=approval_time,
+    )
     return {"status": "stored", "approval_time": approval_time}
+
+
+def append_reservation_record(
+    name: str,
+    car_number: str,
+    reservation_period: str,
+    approval_time: str,
+) -> None:
+    line = f"{name} | {car_number} | {reservation_period} | {approval_time}\n"
+    DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with DATA_PATH.open("a", encoding="utf-8") as handle:
+        handle.write(line)

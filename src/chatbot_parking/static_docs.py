@@ -9,6 +9,20 @@ STATIC_DOCUMENTS = [
         ),
     },
     {
+        "id": "location_directions",
+        "text": (
+            "The garage entrance is on Main Street between 1st and 2nd Avenue. "
+            "Use the blue gate marked 'City Parking' and take a ticket at the barrier."
+        ),
+    },
+    {
+        "id": "facility_features",
+        "text": (
+            "Amenities include EV charging on level P2, accessible parking near elevators, "
+            "and security patrols every hour."
+        ),
+    },
+    {
         "id": "booking_process",
         "text": (
             "To reserve a space, provide your name, surname, car number, and the desired "
@@ -16,9 +30,30 @@ STATIC_DOCUMENTS = [
         ),
     },
     {
+        "id": "rules",
+        "text": (
+            "Please arrive within 30 minutes of your reservation start time. "
+            "Overnight parking is allowed for multi-day bookings. Lost tickets incur a fee."
+        ),
+    },
+    {
         "id": "payments",
         "text": (
             "Payment is accepted by card or mobile wallet at the kiosk or via the mobile app."
+        ),
+    },
+    {
+        "id": "faq_cancellation",
+        "text": (
+            "Cancellations are free up to 2 hours before the reservation start. "
+            "To cancel, provide your booking reference to the support desk."
+        ),
+    },
+    {
+        "id": "support_contacts",
+        "text": (
+            "For general support, visit the information desk on level P1 during working hours. "
+            "You can also use the in-app help center for non-urgent questions."
         ),
     },
 ]
