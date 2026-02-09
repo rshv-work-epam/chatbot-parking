@@ -1,6 +1,7 @@
 """Simple MCP-like server to record confirmed reservations."""
 
 from datetime import datetime, timezone
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -10,7 +11,7 @@ from pydantic import BaseModel
 app = FastAPI(title="Parking MCP Server")
 
 DATA_PATH = Path("data/reservations.txt")
-API_TOKEN = "change-me"  # replace with secret from environment in production
+API_TOKEN = os.getenv("MCP_API_TOKEN", "change-me")
 
 
 class ReservationRecord(BaseModel):
