@@ -5,7 +5,7 @@ from typing import Optional
 
 from chatbot_parking.dynamic_data import get_dynamic_info
 from chatbot_parking.guardrails import filter_sensitive, safe_output
-from chatbot_parking.rag import build_vector_store, retrieve
+from chatbot_parking.rag import build_vector_store, generate_answer, retrieve
 
 
 @dataclass
@@ -38,15 +38,13 @@ class ParkingChatbot:
         retrieval = retrieve(question, self.vector_store)
         snippets = [doc.page_content for doc in retrieval.documents]
         safe_snippets = filter_sensitive(snippets)
-        response_parts = [
-            "Here is what I found:",
-            *safe_snippets,
-            (
-                f"Current availability: {dynamic.available_spaces} spaces. "
-                f"Hours: {dynamic.working_hours}. Pricing: {dynamic.pricing}."
-            ),
-        ]
-        return safe_output("\n".join(response_parts))
+        context = "\n".join(safe_snippets) if safe_snippets else "No relevant context found."
+        dynamic_info = (
+            f"Current availability: {dynamic.available_spaces} spaces. "
+            f"Hours: {dynamic.working_hours}. Pricing: {dynamic.pricing}."
+        )
+        response = generate_answer(question, context, dynamic_info)
+        return safe_output(response)
 
     def start_reservation(self) -> ConversationState:
         return ConversationState(pending_field="name")

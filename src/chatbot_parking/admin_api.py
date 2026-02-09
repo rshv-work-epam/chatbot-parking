@@ -60,6 +60,16 @@ def get_request(request_id: str) -> dict:
     return {"request_id": request_id, "reservation": asdict(reservation)}
 
 
+@app.get("/admin/requests")
+def list_requests() -> dict:
+    return {
+        "pending": [
+            {"request_id": request_id, "reservation": asdict(reservation)}
+            for request_id, reservation in PENDING.items()
+        ]
+    }
+
+
 @app.get("/admin/decisions/{request_id}")
 def get_decision(request_id: str) -> dict:
     decision = DECISIONS.get(request_id)

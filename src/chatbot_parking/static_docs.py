@@ -1,59 +1,17 @@
 """Static knowledge base for the parking chatbot."""
 
-STATIC_DOCUMENTS = [
-    {
-        "id": "parking_overview",
-        "text": (
-            "Our parking facility is located at 101 Main Street, near the city center. "
-            "We support hourly and daily reservations and offer 24/7 CCTV monitoring."
-        ),
-    },
-    {
-        "id": "location_directions",
-        "text": (
-            "The garage entrance is on Main Street between 1st and 2nd Avenue. "
-            "Use the blue gate marked 'City Parking' and take a ticket at the barrier."
-        ),
-    },
-    {
-        "id": "facility_features",
-        "text": (
-            "Amenities include EV charging on level P2, accessible parking near elevators, "
-            "and security patrols every hour."
-        ),
-    },
-    {
-        "id": "booking_process",
-        "text": (
-            "To reserve a space, provide your name, surname, car number, and the desired "
-            "reservation period. A human administrator confirms each booking."
-        ),
-    },
-    {
-        "id": "rules",
-        "text": (
-            "Please arrive within 30 minutes of your reservation start time. "
-            "Overnight parking is allowed for multi-day bookings. Lost tickets incur a fee."
-        ),
-    },
-    {
-        "id": "payments",
-        "text": (
-            "Payment is accepted by card or mobile wallet at the kiosk or via the mobile app."
-        ),
-    },
-    {
-        "id": "faq_cancellation",
-        "text": (
-            "Cancellations are free up to 2 hours before the reservation start. "
-            "To cancel, provide your booking reference to the support desk."
-        ),
-    },
-    {
-        "id": "support_contacts",
-        "text": (
-            "For general support, visit the information desk on level P1 during working hours. "
-            "You can also use the in-app help center for non-urgent questions."
-        ),
-    },
-]
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+DATA_PATH = Path("data/static_docs.json")
+
+
+def load_static_documents() -> list[dict]:
+    if not DATA_PATH.exists():
+        raise FileNotFoundError("Static documents not found at data/static_docs.json")
+    return json.loads(DATA_PATH.read_text(encoding="utf-8"))
+
+
+STATIC_DOCUMENTS = load_static_documents()

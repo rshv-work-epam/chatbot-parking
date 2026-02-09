@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 import os
+import time
 from typing import Optional
 from urllib import request
 
@@ -24,11 +25,21 @@ def _post_json(url: str, payload: dict) -> dict:
         return json.loads(response.read().decode("utf-8"))
 
 
+def _get_json(url: str) -> dict:
+    req = request.Request(url, method="GET")
+    with request.urlopen(req, timeout=5) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
 def request_admin_approval(reservation: ReservationRequest) -> AdminDecision:
     """
     Submit a reservation to the admin API when configured, otherwise auto-approve.
     """
     admin_url = os.getenv("ADMIN_API_URL")
+    auto_approve = os.getenv("ADMIN_AUTO_APPROVE", "true").lower() == "true"
+    poll_interval = float(os.getenv("ADMIN_POLL_INTERVAL", "1.0"))
+    poll_timeout = float(os.getenv("ADMIN_POLL_TIMEOUT", "10.0"))
+
     if admin_url:
         submit = _post_json(
             f"{admin_url.rstrip('/')}/admin/request",
@@ -39,18 +50,41 @@ def request_admin_approval(reservation: ReservationRequest) -> AdminDecision:
                 "reservation_period": reservation.reservation_period,
             },
         )
-        decision = _post_json(
-            f"{admin_url.rstrip('/')}/admin/decision",
-            {
-                "request_id": submit["request_id"],
-                "approved": True,
-                "notes": "Auto-approved via demo client",
-            },
-        )
+        request_id = submit["request_id"]
+        if auto_approve:
+            decision = _post_json(
+                f"{admin_url.rstrip('/')}/admin/decision",
+                {
+                    "request_id": request_id,
+                    "approved": True,
+                    "notes": "Auto-approved via demo client",
+                },
+            )
+            return AdminDecision(
+                approved=decision["approved"],
+                decided_at=decision["decided_at"],
+                notes=decision.get("notes"),
+            )
+
+        deadline = datetime.now(timezone.utc).timestamp() + poll_timeout
+        while datetime.now(timezone.utc).timestamp() < deadline:
+            try:
+                decision = _get_json(
+                    f"{admin_url.rstrip('/')}/admin/decisions/{request_id}"
+                )
+                return AdminDecision(
+                    approved=decision["approved"],
+                    decided_at=decision["decided_at"],
+                    notes=decision.get("notes"),
+                )
+            except Exception:
+                time.sleep(poll_interval)
+
+        decided_at = datetime.now(timezone.utc).isoformat()
         return AdminDecision(
-            approved=decision["approved"],
-            decided_at=decision["decided_at"],
-            notes=decision.get("notes"),
+            approved=False,
+            decided_at=decided_at,
+            notes="No admin decision received before timeout.",
         )
 
     decided_at = datetime.now(timezone.utc).isoformat()

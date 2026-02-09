@@ -3,3 +3,6 @@ __pycache__/
 *.pyc
 .data/
 data/
+!data/
+!data/static_docs.json
+!data/ingest.py
