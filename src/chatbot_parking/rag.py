@@ -1,6 +1,8 @@
 """Retrieval-augmented generation helpers."""
 
 from dataclasses import dataclass
+import os
+from urllib.parse import urlparse
 from typing import List
 
 from langchain_community.vectorstores import FAISS
@@ -57,18 +59,30 @@ def build_vector_store(embeddings: Embeddings | None = None, insert_documents: b
 
     if settings.vector_backend == "weaviate":
         import weaviate
-        from langchain_community.vectorstores import Weaviate
+        from langchain_weaviate import WeaviateVectorStore
 
-        client = weaviate.Client(settings.weaviate_url)
+        parsed_url = urlparse(settings.weaviate_url)
+        http_host = parsed_url.hostname or settings.weaviate_url
+        http_port = parsed_url.port or (443 if parsed_url.scheme == "https" else 80)
+        http_secure = parsed_url.scheme == "https"
+        grpc_port = int(os.getenv("WEAVIATE_GRPC_PORT", "50051"))
+        client = weaviate.connect_to_custom(
+            http_host=http_host,
+            http_port=http_port,
+            http_secure=http_secure,
+            grpc_host=http_host,
+            grpc_port=grpc_port,
+            grpc_secure=http_secure,
+        )
         if insert_documents:
-            return Weaviate.from_documents(
+            return WeaviateVectorStore.from_documents(
                 docs,
                 embedder,
                 client=client,
                 index_name=settings.weaviate_index,
                 text_key="text",
             )
-        return Weaviate(
+        return WeaviateVectorStore(
             client=client,
             index_name=settings.weaviate_index,
             text_key="text",
@@ -113,7 +127,7 @@ def _build_llm() -> LLM:
             azure_endpoint=settings.azure_openai_endpoint,
             api_key=settings.azure_openai_api_key,
             api_version=settings.azure_openai_api_version,
-            deployment_name=settings.azure_openai_deployment,
+            azure_deployment=settings.azure_openai_deployment,
         )
     raise ValueError(f"Unsupported LLM provider: {settings.llm_provider}")
 
