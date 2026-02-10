@@ -1,0 +1,60 @@
+name: CD Azure Container Apps
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  REGISTRY_NAME: ${{ vars.AZURE_ACR_NAME }}
+  RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app_name: chatbot-parking-admin
+            image_name: chatbot-parking-admin
+            command: 'uvicorn chatbot_parking.admin_api:app --host 0.0.0.0 --port 8000'
+          - app_name: chatbot-parking-mcp
+            image_name: chatbot-parking-mcp
+            command: 'uvicorn chatbot_parking.mcp_server:app --host 0.0.0.0 --port 8001'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Build and push image to ACR
+        run: |
+          az acr build \
+            --registry "$REGISTRY_NAME" \
+            --image "${{ matrix.image_name }}:${{ github.sha }}" \
+            --image "${{ matrix.image_name }}:latest" \
+            .
+
+      - name: Deploy container app revision
+        run: |
+          FULL_IMAGE="${REGISTRY_NAME}.azurecr.io/${{ matrix.image_name }}:${{ github.sha }}"
+          az containerapp update \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "${{ matrix.app_name }}" \
+            --image "$FULL_IMAGE" \
+            --set-env-vars \
+              APP_ENV=prod \
+              MCP_API_TOKEN='${{ secrets.MCP_API_TOKEN }}' \
+              ADMIN_API_TOKEN='${{ secrets.ADMIN_API_TOKEN }}' \
+            --command bash \
+            --args -lc "${{ matrix.command }}"

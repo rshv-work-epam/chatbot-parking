@@ -21,6 +21,11 @@ class ReservationRecord(BaseModel):
     approval_time: Optional[str] = None
 
 
+@app.get("/health")
+def health() -> dict:
+    return {"status": "ok", "service": "mcp_server"}
+
+
 @app.post("/record")
 def record_reservation(
     record: ReservationRecord,
