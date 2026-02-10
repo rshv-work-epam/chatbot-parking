@@ -20,6 +20,28 @@ class WorkflowState:
     record_time: str | None = None
 
 
+def request_admin_approval(reservation: ReservationRequest) -> AdminDecision:
+    """Request a decision from the admin approval tool.
+
+    Kept as a module-level function for compatibility with tests and callers
+    that monkeypatch this symbol directly.
+    """
+
+    decision = request_admin_approval_tool.invoke(
+        {
+            "name": reservation.name,
+            "surname": reservation.surname,
+            "car_number": reservation.car_number,
+            "reservation_period": reservation.reservation_period,
+        }
+    )
+    return AdminDecision(
+        approved=decision["approved"],
+        decided_at=decision["decided_at"],
+        notes=decision.get("notes"),
+    )
+
+
 def route_intent(state: WorkflowState) -> WorkflowState:
     chatbot = ParkingChatbot()
     intent = chatbot.detect_intent(state.user_input)
@@ -49,19 +71,7 @@ def collect_user_details(state: WorkflowState) -> WorkflowState:
 def admin_approval(state: WorkflowState) -> WorkflowState:
     if state.reservation_request is None:
         return state
-    decision = request_admin_approval_tool.invoke(
-        {
-            "name": state.reservation_request.name,
-            "surname": state.reservation_request.surname,
-            "car_number": state.reservation_request.car_number,
-            "reservation_period": state.reservation_request.reservation_period,
-        }
-    )
-    state.admin_decision = AdminDecision(
-        approved=decision["approved"],
-        decided_at=decision["decided_at"],
-        notes=decision.get("notes"),
-    )
+    state.admin_decision = request_admin_approval(state.reservation_request)
     return state
 
 
