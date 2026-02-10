@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-DATA_PATH = Path(r"C:\Users\RomanShevchuk\Downloads\chatbot-parking-main_test\data\static_docs.json")
+DATA_PATH = Path("data/static_docs.json")
 
 
 def load_static_documents() -> list[dict]:

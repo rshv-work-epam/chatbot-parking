@@ -9,7 +9,7 @@ from chatbot_parking.guardrails import contains_sensitive_data, redact_sensitive
 from chatbot_parking.rag import build_vector_store
 from chatbot_parking.static_docs import load_static_documents
 
-OUTPUT_PATH = Path(r"C:\Users\RomanShevchuk\Downloads\chatbot-parking-main_test\data\ingest_report.json")
+OUTPUT_PATH = Path("data/ingest_report.json")
 
 
 def ingest() -> dict:
