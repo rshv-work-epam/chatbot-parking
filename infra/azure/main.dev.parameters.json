@@ -22,6 +22,9 @@
     },
     "mcpApiToken": {
       "value": "replace-with-dev-mcp-token"
+    },
+    "vnetName": {
+      "value": "chatbot-parking-dev-vnet"
     }
   }
 }

@@ -3,25 +3,28 @@
   "contentVersion": "1.0.0.0",
   "parameters": {
     "environment": {
-      "value": "dev"
+      "value": "prod"
     },
     "acrName": {
-      "value": "chatbotparkingdevacr"
+      "value": "chatbotparkingprodacr"
     },
     "containerAppsEnvironmentName": {
-      "value": "chatbot-parking-dev-env"
+      "value": "chatbot-parking-prod-env"
     },
     "adminContainerAppName": {
-      "value": "chatbot-parking-dev-admin"
+      "value": "chatbot-parking-prod-admin"
     },
     "mcpContainerAppName": {
-      "value": "chatbot-parking-dev-mcp"
+      "value": "chatbot-parking-prod-mcp"
     },
     "adminApiToken": {
-      "value": "replace-with-dev-admin-token"
+      "value": "replace-with-prod-admin-token"
     },
     "mcpApiToken": {
-      "value": "replace-with-dev-mcp-token"
+      "value": "replace-with-prod-mcp-token"
+    },
+    "vnetName": {
+      "value": "chatbot-parking-prod-vnet"
     }
   }
 }
