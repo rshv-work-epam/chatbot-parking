@@ -1,0 +1,15 @@
+{
+  "run_time_utc": "2026-02-09T13:35:48.534039+00:00",
+  "dataset_path": "eval/qa_dataset.json",
+  "dataset_size": 10,
+  "k": 3,
+  "vector_backend": "faiss",
+  "embeddings_provider": "fake",
+  "llm_provider": "echo",
+  "metrics": {
+    "recall_at_k": 0.5,
+    "precision_at_k": 0.16666666666666666,
+    "latency_p50_ms": 0.08216250000714354,
+    "latency_p95_ms": 0.0
+  }
+}

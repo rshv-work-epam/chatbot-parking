@@ -1,0 +1,41 @@
+[
+  { "question": "What is this parking service and what does it provide in general?", "expected_ids": ["parking_overview"] },
+  { "question": "Give me a short overview of the parking facility and how it works.", "expected_ids": ["parking_overview"] },
+  { "question": "What is the general information about this parking and its purpose?", "expected_ids": ["parking_overview"] },
+  { "question": "Can you summarize the parking system in a few sentences?", "expected_ids": ["parking_overview"] },
+
+  { "question": "Where is the parking located and how do I get there?", "expected_ids": ["location_directions"] },
+  { "question": "What is the address of the parking facility?", "expected_ids": ["location_directions"] },
+  { "question": "How can I find the parking entrance? Any directions?", "expected_ids": ["location_directions"] },
+  { "question": "Can you explain the location and directions to the parking?", "expected_ids": ["location_directions"] },
+
+  { "question": "What features or amenities does the parking facility offer?", "expected_ids": ["facility_features"] },
+  { "question": "Does the parking have EV charging, security, or other facilities?", "expected_ids": ["facility_features"] },
+  { "question": "Tell me about services available at the parking (e.g., levels, accessibility, etc.).", "expected_ids": ["facility_features"] },
+  { "question": "What are the main facility features I should know about?", "expected_ids": ["facility_features"] },
+
+  { "question": "How do I reserve a parking spot step by step?", "expected_ids": ["booking_process"] },
+  { "question": "What information do you need from me to create a reservation?", "expected_ids": ["booking_process"] },
+  { "question": "Explain the booking process from start to finish.", "expected_ids": ["booking_process"] },
+  { "question": "How does the reservation workflow work in this system?", "expected_ids": ["booking_process"] },
+
+  { "question": "What are the rules for using the parking facility?", "expected_ids": ["rules"] },
+  { "question": "Are there any restrictions or policies I should follow while parking?", "expected_ids": ["rules"] },
+  { "question": "What are the main parking rules (entry, exit, behavior, limitations)?", "expected_ids": ["rules"] },
+  { "question": "Tell me the policy/rules for this parking service.", "expected_ids": ["rules"] },
+
+  { "question": "How much does it cost and what are the pricing details?", "expected_ids": ["payments"] },
+  { "question": "What payment methods are accepted for parking reservations?", "expected_ids": ["payments"] },
+  { "question": "Explain pricing and payment options for this parking.", "expected_ids": ["payments"] },
+  { "question": "Are there any fees or how is billing handled?", "expected_ids": ["payments"] },
+
+  { "question": "How can I cancel my reservation?", "expected_ids": ["faq_cancellation"] },
+  { "question": "What is the cancellation policy and are there penalties?", "expected_ids": ["faq_cancellation"] },
+  { "question": "Can I change or cancel a booking after it's created?", "expected_ids": ["faq_cancellation"] },
+  { "question": "Tell me what happens if I need to cancel my reservation.", "expected_ids": ["faq_cancellation"] },
+
+  { "question": "How can I contact support if I have questions?", "expected_ids": ["support_contacts"] },
+  { "question": "What are the support contact details (phone/email) or support hours?", "expected_ids": ["support_contacts"] },
+  { "question": "Where is the information desk and when is it available?", "expected_ids": ["support_contacts"] },
+  { "question": "I need help—how do I reach the parking support team?", "expected_ids": ["support_contacts"] }
+]

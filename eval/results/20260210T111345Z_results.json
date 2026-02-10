@@ -1,0 +1,15 @@
+{
+  "run_time_utc": "2026-02-10T11:13:45.242122+00:00",
+  "dataset_path": "eval\\qa_dataset.json",
+  "dataset_size": 10,
+  "k": 3,
+  "vector_backend": "faiss",
+  "embeddings_provider": "openai",
+  "llm_provider": "openai",
+  "metrics": {
+    "recall_at_k": 1.0,
+    "precision_at_k": 0.3333333333333333,
+    "latency_p50_ms": 259.9014500010526,
+    "latency_p95_ms": 0.0
+  }
+}

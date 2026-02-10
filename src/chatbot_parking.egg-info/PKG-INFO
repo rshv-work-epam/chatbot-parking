@@ -1,0 +1,5 @@
+Metadata-Version: 2.4
+Name: chatbot-parking
+Version: 0.1.0
+Summary: Parking reservation chatbot with LangChain and LangGraph
+Requires-Python: >=3.10
