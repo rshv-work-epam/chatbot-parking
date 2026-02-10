@@ -65,6 +65,17 @@ python data/ingest.py
 python -m chatbot_parking.main
 ```
 
+## Production DevOps (Azure + GitHub)
+
+Production deployment assets are provided for Azure Container Apps + GitHub Actions:
+
+- Infrastructure-as-Code: `infra/azure/main.bicep`
+- CI workflow: `.github/workflows/ci.yml`
+- CD workflow: `.github/workflows/cd-azure-containerapps.yml`
+- Runbook: `docs/devops_production_azure_github.md`
+
+See the runbook for Azure OIDC configuration, required GitHub secrets/variables, and deployment steps.
+
 ## Evaluation
 
 ```bash

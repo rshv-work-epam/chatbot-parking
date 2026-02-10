@@ -37,6 +37,11 @@ class AdminDecisionPayload(BaseModel):
     notes: Optional[str] = None
 
 
+@app.get("/admin/health")
+def health() -> dict:
+    return {"status": "ok", "service": "admin_api"}
+
+
 @app.post("/admin/request")
 def submit_request(payload: AdminRequest, _auth: None = Depends(_require_admin_token)) -> dict:
     request_id = uuid4().hex
