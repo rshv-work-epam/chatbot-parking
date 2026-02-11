@@ -14,19 +14,7 @@ env:
   RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
 
 jobs:
-  # If Azure is not configured, skip deployment but keep CI green.
-  skip-when-azure-missing:
-    runs-on: ubuntu-latest
-    if: ${{ !(secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_TENANT_ID != '' && secrets.AZURE_SUBSCRIPTION_ID != '' && vars.AZURE_ACR_NAME != '' && vars.AZURE_RESOURCE_GROUP != '') }}
-    steps:
-      - name: Skip Azure deploy (no config)
-        run: |
-          echo "Azure deployment skipped."
-          echo "TODO: Configure repo Secrets (AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID)"
-          echo "      and repo Variables (AZURE_ACR_NAME, AZURE_RESOURCE_GROUP) to enable this workflow."
-
   deploy:
-    if: ${{ secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_TENANT_ID != '' && secrets.AZURE_SUBSCRIPTION_ID != '' && vars.AZURE_ACR_NAME != '' && vars.AZURE_RESOURCE_GROUP != '' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -42,7 +30,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check Azure configuration
+        id: check-azure
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_ACR_NAME: ${{ vars.AZURE_ACR_NAME }}
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+        run: |
+          echo "Checking Azure configuration..."
+          if [ -z "$AZURE_CLIENT_ID" ] || [ -z "$AZURE_TENANT_ID" ] || [ -z "$AZURE_SUBSCRIPTION_ID" ] || [ -z "$AZURE_ACR_NAME" ] || [ -z "$AZURE_RESOURCE_GROUP" ]; then
+            echo "Azure configuration incomplete. Skipping deployment."
+            echo "TODO: Configure repo Secrets (AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID)"
+            echo "      and repo Variables (AZURE_ACR_NAME, AZURE_RESOURCE_GROUP) to enable this workflow."
+            echo "has-azure=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          echo "has-azure=true" >> $GITHUB_OUTPUT
+
       - name: Preflight – verify required secrets/vars
+        if: steps.check-azure.outputs.has-azure == 'true'
         env:
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
@@ -66,6 +74,7 @@ jobs:
           fi
 
       - name: Azure Login (OIDC)
+        if: steps.check-azure.outputs.has-azure == 'true'
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -74,6 +83,7 @@ jobs:
           audience: api://AzureADTokenExchange
 
       - name: Build and push image to ACR
+        if: steps.check-azure.outputs.has-azure == 'true'
         run: |
           az acr build \
             --registry "$REGISTRY_NAME" \
@@ -82,6 +92,7 @@ jobs:
             .
 
       - name: Deploy container app revision
+        if: steps.check-azure.outputs.has-azure == 'true'
         run: |
           FULL_IMAGE="${REGISTRY_NAME}.azurecr.io/${{ matrix.image_name }}:${{ github.sha }}"
           az containerapp update \
