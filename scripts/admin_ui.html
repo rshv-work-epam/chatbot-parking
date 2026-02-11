@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Admin Approvals</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 20px; }
+      .req { border: 1px solid #ddd; padding: 12px; margin-bottom: 8px; }
+      .meta { color: #666; font-size: 0.9em }
+      button { margin-right: 8px }
+    </style>
+  </head>
+  <body>
+    <h2>Pending Approval Requests</h2>
+    <div id="list">Loading…</div>
+
+    <script>
+      async function refresh() {
+        const el = document.getElementById('list');
+        el.innerText = 'Loading…';
+        try {
+          const res = await fetch('/admin/requests');
+          const data = await res.json();
+          // Filter on client as well (defensive) to show only pending
+          const pending = (Array.isArray(data) ? data : []).filter(x => !x.decision);
+          if (!pending.length) {
+            el.innerText = 'No pending requests.';
+            return;
+          }
+          el.innerHTML = '';
+          pending.forEach(r => {
+            const d = document.createElement('div');
+            d.className = 'req';
+            d.innerHTML = `
+              <div><strong>${r.payload.name} ${r.payload.surname}</strong></div>
+              <div class="meta">Car: ${r.payload.car_number} • Period: ${r.payload.reservation_period}</div>
+              <div style="margin-top:8px">
+                <button data-id="${r.request_id}" data-action="approve">Approve</button>
+                <button data-id="${r.request_id}" data-action="decline">Decline</button>
+              </div>
+            `;
+            el.appendChild(d);
+          });
+        } catch (err) {
+          el.innerText = 'Error loading requests';
+          console.error(err);
+        }
+      }
+
+      document.addEventListener('click', async (e) => {
+        const btn = e.target.closest('button');
+        if (!btn) return;
+        const id = btn.dataset.id;
+        const action = btn.dataset.action;
+        const approved = action === 'approve';
+        try {
+          const res = await fetch('/admin/decision', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ request_id: id, approved, notes: approved ? 'Approved via UI' : 'Declined via UI' })
+          });
+          if (!res.ok) throw new Error('Request failed');
+          await refresh();
+        } catch (err) {
+          alert('Failed to send decision');
+          console.error(err);
+        }
+      });
+
+      refresh();
+      setInterval(refresh, 5000);
+    </script>
+  </body>
+</html>
