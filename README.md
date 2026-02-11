@@ -1,11 +1,38 @@
 # Chatbot Parking Reservation
 
-This project provides a reference implementation of a parking reservation chatbot using LangChain + LangGraph with a RAG-based architecture. The solution includes:
+An end‑to‑end example of an intelligent parking reservation system that combines Retrieval‑Augmented Generation (RAG), a human‑in‑the‑loop approval flow, and a standardized tool layer (MCP). It’s designed to be small, understandable, and production‑oriented.
 
-- A RAG-powered chatbot for information retrieval and reservation intake.
-- A human-in-the-loop admin tool/agent stub built with LangChain tools.
-- A FastAPI MCP-style server that records approved reservations.
-- A LangGraph orchestration pipeline that wires the workflow.
+## What Is The Idea?
+
+Users should be able to:
+
+1. Ask natural questions about parking (hours, prices, locations, availability)
+2. Book a spot conversationally by providing name, surname, car number, and period
+3. Have a human administrator confirm/decline the booking (policy/compliance gate)
+4. Persist approved bookings reliably to storage
+
+This repo shows how to build that system with modern AI building blocks.
+
+## Architecture At A Glance
+
+```
+User → RAG Chatbot (LangChain) → Collect Details → Admin Approval (human-in-the-loop)
+	│            │                               │
+	│         Vector DB (Weaviate)               └── Approve/Decline via Web UI
+	│                                                (FastAPI server)
+	└──────────────────────────────────────────────────────────────→ If Approved
+																						  ↓
+																			MCP Server writes record
+																			data/reservations.txt
+```
+
+Key components:
+
+- RAG chatbot for answers and reservation intake (LangChain)
+- Vector store for knowledge (Weaviate; FAISS for demo)
+- Human‑in‑the‑loop admin approvals (FastAPI API + simple Web UI)
+- MCP servers for standardized tool calls and data recording
+- LangGraph to orchestrate the full workflow
 
 ## Quick Start (Demo Mode)
 
@@ -18,6 +45,30 @@ pip install -r requirements.txt
 pip install -e .
 python -m chatbot_parking.main
 ```
+
+## Try Manual Approval UI (60 seconds)
+
+Run the lightweight admin server with the built‑in web UI and create a few test requests:
+
+```bash
+# 1) Start the Admin UI server (binds to 0.0.0.0:8000)
+PYTHONPATH=./src python scripts/admin_server.py
+
+# 2) Open the UI in your browser:
+#    http://localhost:8000/admin/ui
+
+# 3) (Optional) Seed a test request from another terminal
+curl -X POST http://localhost:8000/admin/request \
+	-H "Content-Type: application/json" \
+	-d '{
+		"name": "Alex",
+		"surname": "Morgan",
+		"car_number": "XY-1234",
+		"reservation_period": "2026-02-20 09:00 to 2026-02-20 18:00"
+	}'
+```
+
+Approve or decline in the browser—decided items disappear from the pending list.
 
 ## Ingest Static Documents (Demo/Real)
 
@@ -45,6 +96,8 @@ uvicorn chatbot_parking.mcp_server:app --reload
 
 Use the `/record` endpoint with the `x-api-token: change-me` header to store approved reservations in `data/reservations.txt`.
 Set `MCP_SERVER_URL=http://localhost:8001` and `MCP_API_TOKEN=change-me` to enable HTTP recording.
+
+Note: The project also includes in‑process MCP servers in `src/chatbot_parking/mcp_servers/` that expose standardized tools for recording reservations and driving approvals. The orchestration can call these tools directly without HTTP for simplicity in local demos.
 
 ## Docker Compose (Admin + MCP + Weaviate)
 
@@ -105,8 +158,15 @@ See `docs/evaluation.md` for guidance and `docs/evaluation_report.md` for the la
 - Assistant: returns hours + pricing + availability.
 - User: "I want to book a spot."
 - Assistant: collects name → surname → car number → reservation period.
-- Admin: approves via `/admin/decision`.
-- Assistant: records to `data/reservations.txt` (via MCP server when configured).
+- Admin: approves via the Web UI or `/admin/decision` API.
+- Assistant: records to `data/reservations.txt` (through the MCP tool layer).
+
+## Why This Matters
+
+- Human‑in‑the‑loop keeps business rules and compliance in control
+- MCP standardizes how AI calls tools/APIs—easier to extend and maintain
+- LangGraph makes multi‑step flows explicit, testable, and reliable
+- Guardrails protect from accidental sensitive data exposure
 
 ## Docs References
 
