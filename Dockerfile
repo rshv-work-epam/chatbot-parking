@@ -14,6 +14,7 @@ WORKDIR /app
 
 COPY requirements.txt pyproject.toml README.md ./
 COPY src ./src
+COPY data ./data
 
 RUN pip install --upgrade pip \
     && pip install -r requirements.txt \
