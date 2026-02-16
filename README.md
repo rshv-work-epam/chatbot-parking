@@ -46,6 +46,41 @@ pip install -e .
 python -m chatbot_parking.main
 ```
 
+## Interactive CLI mode
+
+Start the interactive loop and chat in free form or run guided booking:
+
+### Windows (PowerShell)
+
+```powershell
+python -m chatbot_parking.main --interactive
+```
+
+### macOS/Linux
+
+```bash
+python -m chatbot_parking.main --interactive
+```
+
+### Demo prompts
+
+Q&A examples:
+- "What are the working hours?"
+- "Where is the parking located?"
+- "What are the prices?"
+
+Booking example:
+- Type: "reserve"
+- Then provide: name, surname, car number, reservation period
+
+Commands in interactive mode:
+- `/help`
+- `/exit`
+- `/reset`
+
+OpenAI-backed mode requires environment variables (for example `OPENAI_API_KEY`, `LLM_PROVIDER=openai`).
+Without those settings, interactive mode still works in demo mode with local defaults.
+
 ## Try Manual Approval UI (60 seconds)
 
 Run the lightweight admin server with the built‑in web UI and create a few test requests:
