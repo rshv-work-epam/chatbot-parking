@@ -34,7 +34,7 @@ def evaluate(k: int = 3) -> dict:
         result = retrieve(sample["question"], store, k=k)
         latencies.append(time.perf_counter() - start)
 
-        retrieved_ids = {doc.metadata.get("id") for doc in result.documents}
+        retrieved_ids = {doc.metadata.get("source_id", doc.metadata.get("id")) for doc in result.documents}
         expected_ids = set(sample["expected_ids"])
         if not expected_ids:
             continue

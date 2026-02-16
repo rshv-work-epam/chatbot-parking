@@ -5,150 +5,83 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Parking Chatbot UI</title>
     <style>
-      :root {
-        color-scheme: light dark;
-        font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-      }
-      body {
-        margin: 0;
-        min-height: 100vh;
-        display: grid;
-        place-items: center;
-        background: #0f172a;
-      }
-      .app {
-        width: min(920px, 95vw);
-        height: min(720px, 92vh);
-        background: #111827;
-        border: 1px solid #374151;
-        border-radius: 16px;
-        display: grid;
-        grid-template-rows: auto 1fr auto;
-        overflow: hidden;
-      }
-      header {
-        padding: 16px 18px;
-        border-bottom: 1px solid #374151;
-        color: #f9fafb;
-      }
-      header h1 {
-        margin: 0;
-        font-size: 1.05rem;
-      }
-      header p {
-        margin: 4px 0 0;
-        font-size: 0.9rem;
-        color: #9ca3af;
-      }
-      #messages {
-        padding: 16px;
-        overflow-y: auto;
-        display: grid;
-        gap: 10px;
-      }
-      .bubble {
-        max-width: 80%;
-        padding: 10px 12px;
-        border-radius: 12px;
-        white-space: pre-wrap;
-        line-height: 1.4;
-      }
-      .user {
-        justify-self: end;
-        background: #2563eb;
-        color: white;
-      }
-      .bot {
-        justify-self: start;
-        background: #1f2937;
-        color: #f3f4f6;
-        border: 1px solid #374151;
-      }
-      form {
-        display: grid;
-        grid-template-columns: 1fr auto;
-        gap: 10px;
-        padding: 14px;
-        border-top: 1px solid #374151;
-      }
-      input {
-        padding: 12px;
-        border-radius: 10px;
-        border: 1px solid #4b5563;
-        background: #0b1220;
-        color: #f9fafb;
-      }
-      button {
-        padding: 0 16px;
-        border: 0;
-        border-radius: 10px;
-        background: #10b981;
-        color: #06210f;
-        font-weight: 700;
-        cursor: pointer;
-      }
-      .nav {
-        margin-top: 8px;
-      }
-      .nav a {
-        color: #60a5fa;
-        text-decoration: none;
-      }
+      body { font-family: Arial, sans-serif; margin: 20px; }
+      #messages { border: 1px solid #ddd; min-height: 280px; padding: 12px; margin-bottom: 12px; overflow-y: auto; }
+      .msg { margin: 8px 0; }
+      .user { font-weight: bold; }
+      .bot { color: #1d4ed8; }
+      form { display: flex; gap: 8px; }
+      input { flex: 1; padding: 8px; }
+      button { padding: 8px 14px; }
     </style>
   </head>
   <body>
-    <main class="app">
-      <header>
-        <h1>Parking Chatbot</h1>
-        <p>Ask parking questions in natural language. For reservation approvals, use the admin page.</p>
-        <div class="nav"><a href="/admin/ui">Open Admin Approval UI</a></div>
-      </header>
+    <h1>Parking Chatbot</h1>
+    <p><a href="/admin/ui">Open Admin Approval UI</a></p>
 
-      <section id="messages">
-        <div class="bubble bot">Hello 👋 Ask me about parking hours, prices, and location.</div>
-      </section>
+    <div id="messages"></div>
 
-      <form id="chat-form">
-        <input id="prompt" placeholder="Type your prompt…" required />
-        <button type="submit">Send</button>
-      </form>
-    </main>
+    <form id="chat-form">
+      <input id="message" type="text" placeholder="Type your message" required />
+      <button type="submit">Send</button>
+    </form>
 
     <script>
+      const THREAD_ID_KEY = 'parking-chat-thread-id';
       const form = document.getElementById('chat-form');
-      const input = document.getElementById('prompt');
+      const input = document.getElementById('message');
       const messages = document.getElementById('messages');
 
-      const append = (text, cls) => {
-        const node = document.createElement('div');
-        node.className = `bubble ${cls}`;
-        node.textContent = text;
-        messages.appendChild(node);
+      function generateThreadId() {
+        return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      }
+
+      function getThreadId() {
+        let threadId = localStorage.getItem(THREAD_ID_KEY);
+        if (!threadId) {
+          threadId = generateThreadId();
+          localStorage.setItem(THREAD_ID_KEY, threadId);
+        }
+        return threadId;
+      }
+
+      function append(role, text) {
+        const div = document.createElement('div');
+        div.className = `msg ${role}`;
+        div.textContent = `${role === 'user' ? 'You' : 'Bot'}: ${text}`;
+        messages.appendChild(div);
         messages.scrollTop = messages.scrollHeight;
-      };
+      }
+
+      append('bot', 'Hello! Ask for parking info or start a booking request.');
 
       form.addEventListener('submit', async (event) => {
         event.preventDefault();
         const message = input.value.trim();
         if (!message) return;
 
-        append(message, 'user');
+        append('user', message);
         input.value = '';
 
         try {
-          const response = await fetch('/chat/ask', {
+          const response = await fetch('/chat/message', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message }),
+            body: JSON.stringify({ message, thread_id: getThreadId() }),
           });
+
           const data = await response.json();
           if (!response.ok) {
-            append(`Error: ${data.detail || 'Request failed'}`, 'bot');
+            append('bot', `Error: ${data.detail || 'Request failed'}`);
             return;
           }
-          append(data.response || '(empty response)', 'bot');
+
+          if (data.thread_id) {
+            localStorage.setItem(THREAD_ID_KEY, data.thread_id);
+          }
+          append('bot', data.response || '(empty response)');
         } catch (error) {
-          append(`Network error: ${error.message}`, 'bot');
+          append('bot', `Network error: ${error.message}`);
         }
       });
     </script>
