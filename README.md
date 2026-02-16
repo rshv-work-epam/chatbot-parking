@@ -81,6 +81,17 @@ Commands in interactive mode:
 OpenAI-backed mode requires environment variables (for example `OPENAI_API_KEY`, `LLM_PROVIDER=openai`).
 Without those settings, interactive mode still works in demo mode with local defaults.
 
+## User Prompt Web UI
+
+You can run a convenient browser UI for end users to ask prompts:
+
+```bash
+PYTHONPATH=./src python scripts/admin_server.py
+# Open http://localhost:8000/chat/ui
+```
+
+The same lightweight server still exposes the approval console at `http://localhost:8000/admin/ui`.
+
 ## Try Manual Approval UI (60 seconds)
 
 Run the lightweight admin server with the built‑in web UI and create a few test requests:
@@ -161,6 +172,10 @@ Production deployment assets are provided for Azure Container Apps + GitHub Acti
 - CI workflow: `.github/workflows/ci.yml`
 - CD workflow: `.github/workflows/cd-azure-containerapps.yml`
 - Runbook: `docs/devops_production_azure_github.md`
+
+An Azure Durable Functions cloud option is also included at `infra/azure/durable_functions/` for event-driven orchestration with status endpoints (`/api/chat/start`).
+
+For cloud persistence, the Azure IaC now supports **Azure Cosmos DB (SQL API, serverless)** as a suitable database for reservation/chat records.
 
 See the runbook for Azure OIDC configuration, required GitHub secrets/variables, and deployment steps.
 

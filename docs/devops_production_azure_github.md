@@ -8,6 +8,7 @@ This guide documents a production-oriented deployment approach for the parking c
 - GitHub CD workflow for Azure Container Apps deployment via OIDC.
 - Hardened production Dockerfile running as non-root.
 - Azure Bicep baseline for ACR + Container Apps + Log Analytics.
+- Optional Azure Cosmos DB (SQL API, serverless) for reservation/chat state persistence.
 - Health endpoints for liveness probes.
 
 ## 1) Prerequisites
@@ -16,6 +17,17 @@ This guide documents a production-oriented deployment approach for the parking c
 - Existing resource group.
 - GitHub repository with Actions enabled.
 - Azure CLI (`az`) and Bicep support installed.
+
+
+### Database choice
+
+For this workload (JSON chat/reservation records with bursty traffic), the recommended Azure database is **Azure Cosmos DB for NoSQL (SQL API, serverless)**. It provides:
+
+- Flexible JSON schema for evolving chatbot payloads.
+- Low-ops autoscaling/serverless economics for variable request rates.
+- Native SDK support for Python APIs and Azure Functions.
+
+Template parameters in `infra/azure/main.bicep` allow turning this on/off with `deployCosmosDb` and customizing account/database/container names.
 
 ## 2) Provision infrastructure
 
@@ -28,7 +40,7 @@ az deployment group create \
   --parameters @infra/azure/main.parameters.json
 ```
 
-After deployment, capture outputs (`adminApiUrl`, `mcpServerUrl`, `acrLoginServer`).
+After deployment, capture outputs (`adminApiUrl`, `mcpServerUrl`, `acrLoginServer`, and Cosmos outputs when enabled).
 
 ## 3) Configure GitHub OIDC for Azure login
 
@@ -89,3 +101,35 @@ curl -fsS https://<mcp-fqdn>/health
 - Add branch protection requiring `CI` workflow success.
 - Add image vulnerability scanning (e.g., Trivy or Defender for Cloud).
 - Add staging environment with required approvals before production deployment.
+
+## 8) Azure Durable Functions option (event-driven orchestration)
+
+If you prefer serverless orchestration over always-on containers, use the Function App skeleton in `infra/azure/durable_functions/`.
+
+What is included:
+
+- `function_app.py`: Durable client trigger (`POST /api/chat/start`), orchestrator, and activity.
+- `host.json`: Azure Functions host configuration.
+- `local.settings.json.sample`: local runtime settings template.
+- `requirements.txt`: runtime dependencies (`azure-functions`, `azure-functions-durable`).
+
+Local run (requires Azure Functions Core Tools):
+
+```bash
+cd infra/azure/durable_functions
+cp local.settings.json.sample local.settings.json
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+func start
+```
+
+Start an orchestration:
+
+```bash
+curl -X POST http://localhost:7071/api/chat/start \
+  -H 'Content-Type: application/json' \
+  -d '{"message": "What are the parking hours?"}'
+```
+
+The durable starter returns status query URLs that can be polled until completion.
+
