@@ -13,6 +13,18 @@
     },
     "mcpContainerAppName": {
       "value": "chatbot-parking-mcp"
+    },
+    "deployCosmosDb": {
+      "value": true
+    },
+    "cosmosAccountName": {
+      "value": "chatbotparkingcosmosdev"
+    },
+    "cosmosDatabaseName": {
+      "value": "chatbotParking"
+    },
+    "cosmosContainerName": {
+      "value": "reservations"
     }
   }
 }

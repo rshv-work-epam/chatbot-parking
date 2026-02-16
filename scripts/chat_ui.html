@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Parking Chatbot UI</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #0f172a;
+      }
+      .app {
+        width: min(920px, 95vw);
+        height: min(720px, 92vh);
+        background: #111827;
+        border: 1px solid #374151;
+        border-radius: 16px;
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        overflow: hidden;
+      }
+      header {
+        padding: 16px 18px;
+        border-bottom: 1px solid #374151;
+        color: #f9fafb;
+      }
+      header h1 {
+        margin: 0;
+        font-size: 1.05rem;
+      }
+      header p {
+        margin: 4px 0 0;
+        font-size: 0.9rem;
+        color: #9ca3af;
+      }
+      #messages {
+        padding: 16px;
+        overflow-y: auto;
+        display: grid;
+        gap: 10px;
+      }
+      .bubble {
+        max-width: 80%;
+        padding: 10px 12px;
+        border-radius: 12px;
+        white-space: pre-wrap;
+        line-height: 1.4;
+      }
+      .user {
+        justify-self: end;
+        background: #2563eb;
+        color: white;
+      }
+      .bot {
+        justify-self: start;
+        background: #1f2937;
+        color: #f3f4f6;
+        border: 1px solid #374151;
+      }
+      form {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px;
+        padding: 14px;
+        border-top: 1px solid #374151;
+      }
+      input {
+        padding: 12px;
+        border-radius: 10px;
+        border: 1px solid #4b5563;
+        background: #0b1220;
+        color: #f9fafb;
+      }
+      button {
+        padding: 0 16px;
+        border: 0;
+        border-radius: 10px;
+        background: #10b981;
+        color: #06210f;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .nav {
+        margin-top: 8px;
+      }
+      .nav a {
+        color: #60a5fa;
+        text-decoration: none;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="app">
+      <header>
+        <h1>Parking Chatbot</h1>
+        <p>Ask parking questions in natural language. For reservation approvals, use the admin page.</p>
+        <div class="nav"><a href="/admin/ui">Open Admin Approval UI</a></div>
+      </header>
+
+      <section id="messages">
+        <div class="bubble bot">Hello 👋 Ask me about parking hours, prices, and location.</div>
+      </section>
+
+      <form id="chat-form">
+        <input id="prompt" placeholder="Type your prompt…" required />
+        <button type="submit">Send</button>
+      </form>
+    </main>
+
+    <script>
+      const form = document.getElementById('chat-form');
+      const input = document.getElementById('prompt');
+      const messages = document.getElementById('messages');
+
+      const append = (text, cls) => {
+        const node = document.createElement('div');
+        node.className = `bubble ${cls}`;
+        node.textContent = text;
+        messages.appendChild(node);
+        messages.scrollTop = messages.scrollHeight;
+      };
+
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const message = input.value.trim();
+        if (!message) return;
+
+        append(message, 'user');
+        input.value = '';
+
+        try {
+          const response = await fetch('/chat/ask', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message }),
+          });
+          const data = await response.json();
+          if (!response.ok) {
+            append(`Error: ${data.detail || 'Request failed'}`, 'bot');
+            return;
+          }
+          append(data.response || '(empty response)', 'bot');
+        } catch (error) {
+          append(`Network error: ${error.message}`, 'bot');
+        }
+      });
+    </script>
+  </body>
+</html>
