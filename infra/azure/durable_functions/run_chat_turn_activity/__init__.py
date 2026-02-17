@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
 from uuid import uuid4
 
 from func_bootstrap import ensure_src_on_path
@@ -18,7 +17,7 @@ def _durable_answer_question(_text: str) -> str:
     return "Info questions are handled by the UI service. Start a booking to continue."
 
 
-def main(payload: dict[str, Any]) -> dict[str, Any]:
+def main(payload: dict) -> dict:
     message = str(payload.get("message", "")).strip()
     thread_id = str(payload.get("thread_id", "")).strip() or str(uuid4())
 
@@ -48,4 +47,3 @@ def main(payload: dict[str, Any]) -> dict[str, Any]:
     response.setdefault("mode", "info")
     response.setdefault("status", "collecting")
     return response
-
