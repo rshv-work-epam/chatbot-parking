@@ -19,7 +19,6 @@ SRC_PATH = Path(__file__).resolve().parents[3] / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.append(str(SRC_PATH))
 
-from chatbot_parking.chatbot import ParkingChatbot
 from chatbot_parking.interactive_flow import run_chat_turn
 from chatbot_parking.persistence import get_persistence
 
@@ -174,15 +173,19 @@ def run_chat_turn_activity(payload: dict[str, Any]) -> dict[str, Any]:
             "status": "collecting",
         }
 
+    def _durable_answer_question(_text: str) -> str:
+        # The Durable backend is intended to orchestrate booking + approval reliably.
+        # Keep dependencies minimal (avoid RAG/embeddings installs in the Functions build).
+        return "Info questions are handled by the UI service. Start a booking to continue."
+
     persistence = get_persistence()
-    chatbot = ParkingChatbot()
 
     prior_state = persistence.get_thread(thread_id)
     result, next_state = run_chat_turn(
         message=message,
         state=prior_state,
         persistence=persistence,
-        answer_question=chatbot.answer_question,
+        answer_question=_durable_answer_question,
     )
     persistence.upsert_thread(thread_id, next_state)
 

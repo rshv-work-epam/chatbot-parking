@@ -228,17 +228,24 @@ def _resolve_thread_id(req: Request, explicit_thread_id: str | None) -> str:
 
 
 def _run_chat_turn(thread_id: str, message: str) -> dict[str, Any]:
-    # Prefer durable cloud execution when configured.
-    if os.getenv("DURABLE_BASE_URL"):
-        result = _invoke_durable_chat(message=message, thread_id=thread_id)
-        result.setdefault("thread_id", thread_id)
-        result.setdefault("mode", "info")
-        result.setdefault("status", "collecting")
-        result.setdefault("response", "")
-        return result
-
     persistence = get_persistence()
     prior_state = persistence.get_thread(thread_id)
+
+    # Use Durable Functions only for the booking workflow (keeps Functions deps small).
+    durable_error: str | None = None
+    if os.getenv("DURABLE_BASE_URL"):
+        is_booking_thread = isinstance(prior_state, dict) and prior_state.get("mode") == "booking"
+        if is_booking_thread or is_reservation_intent(message):
+            try:
+                result = _invoke_durable_chat(message=message, thread_id=thread_id)
+                result.setdefault("thread_id", thread_id)
+                result.setdefault("mode", "info")
+                result.setdefault("status", "collecting")
+                result.setdefault("response", "")
+                return result
+            except Exception as exc:
+                durable_error = str(exc)
+
     result, next_state = run_chat_turn(
         message=message,
         state=prior_state,
@@ -251,6 +258,11 @@ def _run_chat_turn(thread_id: str, message: str) -> dict[str, Any]:
         **result,
         "thread_id": thread_id,
     }
+    if durable_error:
+        response["status_detail"] = (
+            f"{(response.get('status_detail') or '').strip()} "
+            "(Durable backend unavailable; using local fallback.)"
+        ).strip()
     response.setdefault("response", "")
     response.setdefault("mode", "info")
     response.setdefault("status", "collecting")

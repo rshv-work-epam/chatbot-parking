@@ -8,9 +8,10 @@ client = TestClient(web_demo_server.app)
 
 def test_chat_message_uses_durable_when_configured(monkeypatch):
     monkeypatch.setenv("DURABLE_BASE_URL", "https://func.example")
+    message = "I want to reserve a spot"
 
     def fake_invoke(message: str, thread_id: str):
-        assert message == "hello"
+        assert message == "I want to reserve a spot"
         assert thread_id == "thread-123"
         return {
             "response": "hi from durable",
@@ -23,7 +24,7 @@ def test_chat_message_uses_durable_when_configured(monkeypatch):
 
     response = client.post(
         "/chat/message",
-        json={"message": "hello", "thread_id": "thread-123"},
+        json={"message": message, "thread_id": "thread-123"},
     )
 
     assert response.status_code == 200
