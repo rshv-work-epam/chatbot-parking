@@ -1,4 +1,4 @@
-name: CD Azure Hybrid (UI + MCP + Durable)
+name: CD Azure Hybrid (UI + Durable)
 
 on:
   workflow_dispatch:
@@ -93,8 +93,6 @@ jobs:
             --set-env-vars \
               APP_ENV=prod \
               ADMIN_UI_TOKEN='${{ secrets.ADMIN_UI_TOKEN }}' \
-              MCP_TRANSPORT=stdio \
-              MCP_ALLOW_LOCAL_FALLBACK=false \
               MCP_SERVER_COMMAND=python \
               MCP_SERVER_ARGS='-m chatbot_parking.mcp_servers.reservations_stdio_server'
 

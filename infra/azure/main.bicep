@@ -10,9 +10,6 @@ param containerAppsEnvironmentName string = 'chatbot-parking-env'
 @description('UI container app name')
 param uiContainerAppName string = 'chatbot-parking-ui'
 
-@description('MCP server container app name')
-param mcpContainerAppName string = 'chatbot-parking-mcp'
-
 @description('Function app name')
 param functionAppName string = 'chatbot-parking-func'
 
@@ -311,10 +308,6 @@ resource uiContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
           value: 'replace-at-deploy-time'
         }
         {
-          name: 'mcp-api-token'
-          value: 'replace-at-deploy-time'
-        }
-        {
           name: 'durable-function-key'
           value: listkeys('${functionApp.id}/host/default', '2023-12-01').functionKeys.default
         }
@@ -350,10 +343,6 @@ resource uiContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
               secretRef: 'admin-ui-token'
             }
             {
-              name: 'MCP_API_TOKEN'
-              secretRef: 'mcp-api-token'
-            }
-            {
               name: 'COSMOS_DB_ENDPOINT'
               value: deployCosmosDb ? cosmosAccount.properties.documentEndpoint : ''
             }
@@ -380,14 +369,6 @@ resource uiContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
             {
               name: 'PERSISTENCE_BACKEND'
               value: deployCosmosDb ? 'cosmos' : 'memory'
-            }
-            {
-              name: 'MCP_TRANSPORT'
-              value: 'stdio'
-            }
-            {
-              name: 'MCP_ALLOW_LOCAL_FALLBACK'
-              value: 'false'
             }
             {
               name: 'MCP_SERVER_COMMAND'
@@ -423,77 +404,6 @@ resource uiContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
   }
 }
 
-resource mcpContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
-  name: mcpContainerAppName
-  location: location
-  identity: {
-    type: 'SystemAssigned'
-  }
-  properties: {
-    managedEnvironmentId: containerAppsEnvironment.id
-    configuration: {
-      ingress: {
-        external: true
-        targetPort: 8001
-        transport: 'auto'
-      }
-      registries: [
-        {
-          server: '${acrName}.azurecr.io'
-          identity: 'system'
-        }
-      ]
-      activeRevisionsMode: 'Single'
-      secrets: [
-        {
-          name: 'mcp-api-token'
-          value: 'replace-at-deploy-time'
-        }
-      ]
-    }
-    template: {
-      containers: [
-        {
-          name: 'mcp-server'
-          image: '${acrName}.azurecr.io/chatbot-parking-mcp:latest'
-          command: [
-            'bash'
-          ]
-          args: [
-            '-lc'
-            'uvicorn chatbot_parking.mcp_server:app --host 0.0.0.0 --port 8001'
-          ]
-          env: [
-            {
-              name: 'MCP_API_TOKEN'
-              secretRef: 'mcp-api-token'
-            }
-          ]
-          resources: {
-            cpu: json(cpu)
-            memory: memory
-          }
-          probes: [
-            {
-              type: 'Liveness'
-              httpGet: {
-                path: '/health'
-                port: 8001
-              }
-              initialDelaySeconds: 10
-              periodSeconds: 10
-            }
-          ]
-        }
-      ]
-      scale: {
-        minReplicas: 1
-        maxReplicas: 3
-      }
-    }
-  }
-}
-
 resource acrPullForUi 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(uiContainerApp.id, acr.id, 'AcrPull')
   scope: acr
@@ -504,18 +414,7 @@ resource acrPullForUi 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
 }
 
-resource acrPullForMcp 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(mcpContainerApp.id, acr.id, 'AcrPull')
-  scope: acr
-  properties: {
-    principalId: mcpContainerApp.identity.principalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')
-    principalType: 'ServicePrincipal'
-  }
-}
-
 output uiApiUrl string = 'https://${uiContainerApp.properties.configuration.ingress.fqdn}'
-output mcpServerUrl string = 'https://${mcpContainerApp.properties.configuration.ingress.fqdn}'
 output durableBaseUrl string = 'https://${functionApp.properties.defaultHostName}'
 output acrLoginServer string = acr.properties.loginServer
 output cosmosDbEndpoint string = deployCosmosDb ? cosmosAccount.properties.documentEndpoint : ''

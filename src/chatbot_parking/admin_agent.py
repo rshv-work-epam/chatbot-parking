@@ -5,12 +5,16 @@ from datetime import datetime, timezone
 import json
 import os
 import time
-import uuid
 from typing import Optional
 from urllib import request
 
 from langchain_core.tools import tool
 
+from chatbot_parking.admin_store import (
+    create_admin_request,
+    get_admin_decision,
+    post_admin_decision,
+)
 from chatbot_parking.chatbot import ReservationRequest
 
 
@@ -19,10 +23,6 @@ class AdminDecision:
     approved: bool
     decided_at: str
     notes: Optional[str] = None
-
-
-# In-memory store for pending approval requests (MCP-based)
-PENDING_REQUESTS = {}
 
 
 def _build_headers() -> dict:
@@ -46,60 +46,69 @@ def _get_json(url: str) -> dict:
         return json.loads(response.read().decode("utf-8"))
 
 
-def request_admin_approval_mcp(
-    name: str, surname: str, car_number: str, reservation_period: str
-) -> dict:
-    """Request approval via the MCP admin approvals system."""
-    request_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc).isoformat()
+def _request_via_store(reservation: ReservationRequest) -> str:
+    return create_admin_request(
+        {
+            "name": reservation.name,
+            "surname": reservation.surname,
+            "car_number": reservation.car_number,
+            "reservation_period": reservation.reservation_period,
+        }
+    )
 
-    PENDING_REQUESTS[request_id] = {
-        "payload": {
-            "name": name,
-            "surname": surname,
-            "car_number": car_number,
-            "reservation_period": reservation_period,
+
+def _poll_store_decision(request_id: str, poll_interval: float, poll_timeout: float) -> AdminDecision:
+    deadline = time.time() + poll_timeout
+    while time.time() < deadline:
+        decision = get_admin_decision(request_id)
+        if decision:
+            return AdminDecision(
+                approved=decision["approved"],
+                decided_at=decision["decided_at"],
+                notes=decision.get("notes"),
+            )
+        time.sleep(poll_interval)
+
+    decided_at = datetime.now(timezone.utc).isoformat()
+    return AdminDecision(
+        approved=False,
+        decided_at=decided_at,
+        notes="No admin decision received before timeout.",
+    )
+
+
+def _request_via_http(reservation: ReservationRequest, admin_url: str) -> str:
+    submit = _post_json(
+        f"{admin_url.rstrip('/')}/admin/request",
+        {
+            "name": reservation.name,
+            "surname": reservation.surname,
+            "car_number": reservation.car_number,
+            "reservation_period": reservation.reservation_period,
         },
-        "decision": None,
-        "created_at": now,
-        "decided_at": None,
-    }
-
-    return {
-        "status": "pending",
-        "request_id": request_id,
-        "message": "Request submitted for admin approval. Awaiting decision.",
-    }
+    )
+    return submit["request_id"]
 
 
-def get_pending_approvals_mcp() -> list[dict]:
-    """Get pending approval requests from MCP system."""
-    pending = [
-        {"request_id": rid, **req}
-        for rid, req in PENDING_REQUESTS.items()
-        if req["decision"] is None
-    ]
-    return pending
+def _poll_http_decision(request_id: str, admin_url: str, poll_interval: float, poll_timeout: float) -> AdminDecision:
+    deadline = time.time() + poll_timeout
+    while time.time() < deadline:
+        try:
+            decision = _get_json(f"{admin_url.rstrip('/')}/admin/decisions/{request_id}")
+            return AdminDecision(
+                approved=decision["approved"],
+                decided_at=decision["decided_at"],
+                notes=decision.get("notes"),
+            )
+        except Exception:
+            time.sleep(poll_interval)
 
-
-def submit_approval_decision_mcp(
-    request_id: str, approved: bool, notes: str = ""
-) -> dict:
-    """Submit an admin decision via the MCP system."""
-    if request_id not in PENDING_REQUESTS:
-        return {"error": "Request not found", "request_id": request_id}
-
-    now = datetime.now(timezone.utc).isoformat()
-    PENDING_REQUESTS[request_id]["decision"] = "approved" if approved else "declined"
-    PENDING_REQUESTS[request_id]["decided_at"] = now
-    PENDING_REQUESTS[request_id]["notes"] = notes
-
-    return {
-        "status": "decided",
-        "request_id": request_id,
-        "approved": approved,
-        "decided_at": now,
-    }
+    decided_at = datetime.now(timezone.utc).isoformat()
+    return AdminDecision(
+        approved=False,
+        decided_at=decided_at,
+        notes="No admin decision received before timeout.",
+    )
 
 
 def request_admin_approval(reservation: ReservationRequest) -> AdminDecision:
@@ -112,24 +121,14 @@ def request_admin_approval(reservation: ReservationRequest) -> AdminDecision:
     poll_timeout = float(os.getenv("ADMIN_POLL_TIMEOUT", "10.0"))
 
     if admin_url:
-        print("[admin_agent] Using external admin API flow")
-        submit = _post_json(
-            f"{admin_url.rstrip('/')}/admin/request",
-            {
-                "name": reservation.name,
-                "surname": reservation.surname,
-                "car_number": reservation.car_number,
-                "reservation_period": reservation.reservation_period,
-            },
-        )
-        request_id = submit["request_id"]
+        request_id = _request_via_http(reservation, admin_url)
         if auto_approve:
             decision = _post_json(
                 f"{admin_url.rstrip('/')}/admin/decision",
                 {
                     "request_id": request_id,
                     "approved": True,
-                    "notes": "Auto-approved via demo client",
+                    "notes": "Auto-approved via configured demo mode",
                 },
             )
             return AdminDecision(
@@ -137,77 +136,23 @@ def request_admin_approval(reservation: ReservationRequest) -> AdminDecision:
                 decided_at=decision["decided_at"],
                 notes=decision.get("notes"),
             )
+        return _poll_http_decision(request_id, admin_url, poll_interval, poll_timeout)
 
-        deadline = datetime.now(timezone.utc).timestamp() + poll_timeout
-        while datetime.now(timezone.utc).timestamp() < deadline:
-            try:
-                decision = _get_json(f"{admin_url.rstrip('/')}/admin/decisions/{request_id}")
-                return AdminDecision(
-                    approved=decision["approved"],
-                    decided_at=decision["decided_at"],
-                    notes=decision.get("notes"),
-                )
-            except Exception:
-                time.sleep(poll_interval)
-
-        decided_at = datetime.now(timezone.utc).isoformat()
-        return AdminDecision(
-            approved=False,
-            decided_at=decided_at,
-            notes="No admin decision received before timeout.",
-        )
-
-    # Use MCP admin approvals system (in-process)
-    try:
-        print("[admin_agent] Using in-process MCP admin approval flow")
-        approval_result = request_admin_approval_mcp(
-            name=reservation.name,
-            surname=reservation.surname,
-            car_number=reservation.car_number,
-            reservation_period=reservation.reservation_period,
-        )
-        request_id = approval_result.get("request_id")
-
-        if auto_approve:
-            decision_result = submit_approval_decision_mcp(
-                request_id=request_id,
-                approved=True,
-                notes="Auto-approved via demo client",
-            )
-            return AdminDecision(
-                approved=decision_result.get("approved", True),
-                decided_at=decision_result.get(
-                    "decided_at", datetime.now(timezone.utc).isoformat()
-                ),
-                notes="Auto-approved via demo client",
-            )
-
-        deadline = datetime.now(timezone.utc).timestamp() + poll_timeout
-        while datetime.now(timezone.utc).timestamp() < deadline:
-            request_entry = PENDING_REQUESTS.get(request_id)
-            if request_entry and request_entry.get("decision") is not None:
-                return AdminDecision(
-                    approved=request_entry["decision"] == "approved",
-                    decided_at=request_entry.get(
-                        "decided_at", datetime.now(timezone.utc).isoformat()
-                    ),
-                    notes=request_entry.get("notes", ""),
-                )
-            time.sleep(poll_interval)
-
-        decided_at = datetime.now(timezone.utc).isoformat()
-        return AdminDecision(
-            approved=False,
-            decided_at=decided_at,
-            notes="No admin decision received before timeout.",
-        )
-    except Exception:
-        decided_at = datetime.now(timezone.utc).isoformat()
-        return AdminDecision(
+    request_id = _request_via_store(reservation)
+    if auto_approve:
+        decision = post_admin_decision(
+            request_id=request_id,
             approved=True,
-            decided_at=decided_at,
-            notes="Auto-approved for demo (MCP error fallback)",
+            notes="Auto-approved via configured demo mode",
         )
+        if decision:
+            return AdminDecision(
+                approved=decision["approved"],
+                decided_at=decision["decided_at"],
+                notes=decision.get("notes"),
+            )
+
+    return _poll_store_decision(request_id, poll_interval, poll_timeout)
 
 
 @tool

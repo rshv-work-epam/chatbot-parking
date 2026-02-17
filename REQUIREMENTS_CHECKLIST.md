@@ -99,11 +99,10 @@
 ## ✅ STAGE 3: Process confirmed reservation by using MCP server
 
 ### Requirement 1: Use MCP server (open-source or custom)
-- ✅ **Custom MCP Servers**: `src/chatbot_parking/mcp_servers/`
-  - `reservations_server.py` - Standard MCP server for recording reservations
-  - `admin_approvals_server.py` - Standard MCP server for approval workflow
-  - Implements standard MCP protocol with tool definitions
-  - Both servers define `list_tools()` and `call_tool()` handlers
+- ✅ **Custom MCP Server**: `src/chatbot_parking/mcp_servers/`
+  - `reservations_server.py` - Standard MCP tool definition for recording reservations
+  - `reservations_stdio_server.py` - MCP stdio entrypoint used by orchestration client
+  - Implements MCP protocol with `list_tools()` and `call_tool()` handlers
 
 ### Requirement 2: Write reservation data after admin approval
 - ✅ **Data Recording**: 
@@ -115,7 +114,7 @@
 ### Requirement 3: Secure and reliable service
 - ✅ **Security**:
   - MCP tools enforce structured input/output
-  - API token validation for HTTP endpoints
+  - Admin API token validation for approval endpoints
   - Type checking via Pydantic models
   
 - ✅ **Reliability**:
@@ -153,7 +152,7 @@
   
 - ✅ **Node 3 - Administrator Approval**: `admin_approval()`
   - Routes to admin agent
-  - MCP server system with fallback to HTTP API
+  - Uses persistence-backed approval storage and optional external Admin API
   - Returns `AdminDecision` with approval status
   
 - ✅ **Node 4 - Data Recording**: `record_booking()`

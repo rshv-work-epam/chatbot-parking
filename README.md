@@ -1,6 +1,6 @@
 # Chatbot Parking Reservation
 
-An end‑to‑end example of an intelligent parking reservation system that combines Retrieval‑Augmented Generation (RAG), a human‑in‑the‑loop approval flow, and a standardized tool layer (MCP). It’s designed to be small, understandable, and production‑oriented.
+An end‑to‑end example of an intelligent parking reservation system that combines Retrieval‑Augmented Generation (RAG), a human‑in‑the‑loop approval flow, and a real MCP tool server (stdio transport). It’s designed to be small, understandable, and production‑oriented.
 
 ## What Is The Idea?
 
@@ -31,7 +31,7 @@ Key components:
 - RAG chatbot for answers and reservation intake (LangChain)
 - Vector store for knowledge (Weaviate; FAISS for demo)
 - Human‑in‑the‑loop admin approvals (FastAPI API + simple Web UI)
-- MCP servers for standardized tool calls and data recording
+- MCP stdio server for standardized reservation recording tool calls
 - LangGraph to orchestrate the full workflow
 
 ## Quick Start (Demo Mode)
@@ -134,18 +134,16 @@ Use `ADMIN_AUTO_APPROVE=true|false` to toggle auto-approval. When disabled, post
 `POST /admin/decision` or inspect pending requests via `GET /admin/requests`.
 Requests require `x-api-token: $ADMIN_API_TOKEN`.
 
-## Running the MCP Server
+## MCP (Real Protocol, Stdio)
 
-```bash
-uvicorn chatbot_parking.mcp_server:app --reload
-```
+The reservation recorder is implemented as a real MCP server in:
 
-Use the `/record` endpoint with the `x-api-token: change-me` header to store approved reservations in `data/reservations.txt`.
-Set `MCP_SERVER_URL=http://localhost:8001` and `MCP_API_TOKEN=change-me` to enable HTTP recording.
+- `src/chatbot_parking/mcp_servers/reservations_server.py` (tool definition)
+- `src/chatbot_parking/mcp_servers/reservations_stdio_server.py` (stdio entrypoint)
 
-Note: The project also includes in‑process MCP servers in `src/chatbot_parking/mcp_servers/` that expose standardized tools for recording reservations and driving approvals. The orchestration can call these tools directly without HTTP for simplicity in local demos.
+The orchestration calls this MCP tool through `src/chatbot_parking/mcp_client.py`.
 
-## Docker Compose (Admin + MCP + Weaviate)
+## Docker Compose (UI/API + Weaviate)
 
 ```bash
 docker compose up --build
@@ -170,7 +168,7 @@ Production deployment assets are provided for a hybrid Azure runtime:
 
 - Infrastructure-as-Code: `infra/azure/main.bicep`
 - CI workflow: `.github/workflows/ci.yml`
-- CD workflow: `.github/workflows/cd-azure-containerapps.yml` (UI + MCP container apps + Durable Functions)
+- CD workflow: `.github/workflows/cd-azure-containerapps.yml` (UI container app + Durable Functions)
 - Runbook: `docs/devops_production_azure_github.md`
 
 Cloud architecture:
@@ -178,8 +176,6 @@ Cloud architecture:
 - `chatbot-parking-ui` Container App runs `chatbot_parking.web_demo_server:app` and serves `/chat/ui` + `/admin/ui`.
 - Durable Function (`/api/chat/start`) executes chat turns.
 - Cosmos DB stores thread state, admin approvals, and reservation records.
-- `chatbot-parking-mcp` remains available for compatibility.
-
 See the runbook for Azure OIDC configuration, required GitHub secrets/variables, and deployment steps.
 
 ## Evaluation
@@ -196,8 +192,8 @@ Results are saved in `eval/results/` and `docs/evaluation_report.md` is updated.
 - `src/chatbot_parking/rag.py`: Vector store setup and retrieval.
 - `src/chatbot_parking/admin_agent.py`: LangChain tool-backed human-in-the-loop approval stub.
 - `src/chatbot_parking/admin_api.py`: Admin REST API for approve/deny actions.
-- `src/chatbot_parking/mcp_server.py`: Reservation recording server.
-- `src/chatbot_parking/mcp_client.py`: Client for recording reservations via MCP.
+- `src/chatbot_parking/mcp_servers/reservations_stdio_server.py`: MCP stdio server entrypoint.
+- `src/chatbot_parking/mcp_client.py`: MCP stdio client used by orchestration.
 - `src/chatbot_parking/orchestration.py`: LangGraph workflow.
 - `data/static_docs.json`: Static documents for RAG ingestion.
 - `data/ingest.py`: Ingestion script for guardrails + reporting.
@@ -235,4 +231,14 @@ See `docs/evaluation.md` for guidance and `docs/evaluation_report.md` for the la
 
 ```bash
 pytest
+```
+
+## Load Test
+
+```bash
+python scripts/load_test_chat.py \
+  --base-url http://localhost:8000 \
+  --requests 50 \
+  --concurrency 10 \
+  --admin-token <ADMIN_UI_TOKEN>
 ```

@@ -185,3 +185,21 @@ def generate_answer(question: str, context: str, dynamic_info: str) -> str:
     )
     chain = prompt | _build_llm() | StrOutputParser()
     return chain.invoke({"question": question, "context": context, "dynamic": dynamic_info})
+
+
+def classify_intent(question: str) -> str:
+    """Classify user intent as `booking` or `info` using the configured LLM."""
+    prompt = PromptTemplate.from_template(
+        "Classify the user intent as exactly one word: booking or info.\n"
+        "booking = asking to create/confirm parking reservation.\n"
+        "info = asking parking info only.\n"
+        "Question: {question}\n"
+        "Intent:"
+    )
+    chain = prompt | _build_llm() | StrOutputParser()
+    raw = chain.invoke({"question": question}).strip().lower()
+    if "booking" in raw:
+        return "booking"
+    if raw == "info" or "info" in raw:
+        return "info"
+    return "info"

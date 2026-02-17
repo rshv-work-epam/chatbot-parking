@@ -6,8 +6,6 @@ from chatbot_parking.mcp_client import record_reservation
 def test_record_reservation_uses_stdio_mcp(monkeypatch, tmp_path):
     target = tmp_path / "reservations.txt"
 
-    monkeypatch.setenv("MCP_TRANSPORT", "stdio")
-    monkeypatch.delenv("MCP_ALLOW_LOCAL_FALLBACK", raising=False)
     monkeypatch.setenv("RESERVATIONS_FILE_PATH", str(target))
 
     approval_time = record_reservation(

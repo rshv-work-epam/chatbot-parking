@@ -7,7 +7,6 @@ This guide documents a production-oriented deployment for the parking chatbot on
 - **UI/API Container App** (`chatbot-parking-ui`): serves `/chat/ui`, `/admin/ui`, `/chat/message`, and `/admin/*`.
 - **Durable Function App**: executes chat turns via `POST /api/chat/start`.
 - **Cosmos DB SQL API (serverless)**: stores thread state, approval requests/decisions, reservation records.
-- **MCP Container App** (`chatbot-parking-mcp`): compatibility endpoint for `/record`.
 - **ACR + Container Apps Environment + Log Analytics + App Insights**.
 
 ## 1) Prerequisites
@@ -30,7 +29,6 @@ az deployment group create \
 Capture outputs:
 
 - `uiApiUrl`
-- `mcpServerUrl`
 - `durableBaseUrl`
 - `acrLoginServer`
 - `cosmosDbEndpoint`
@@ -47,9 +45,6 @@ Secrets:
 - `AZURE_TENANT_ID`
 - `AZURE_SUBSCRIPTION_ID`
 - `ADMIN_UI_TOKEN`
-- `ADMIN_API_TOKEN`
-- `MCP_API_TOKEN`
-
 Variables:
 
 - `AZURE_ACR_NAME`
@@ -64,8 +59,8 @@ Variables:
 
 ### CD (`.github/workflows/cd-azure-containerapps.yml`)
 
-- Builds and pushes `chatbot-parking-ui` and `chatbot-parking-mcp` images to ACR.
-- Updates both container apps.
+- Builds and pushes `chatbot-parking-ui` image to ACR.
+- Updates the UI container app.
 - Deploys Durable Function code from `infra/azure/durable_functions`.
 
 ## 5) Runtime configuration
@@ -94,7 +89,6 @@ Durable Function expects:
 curl -fsS https://<ui-fqdn>/chat/ui
 curl -fsS https://<ui-fqdn>/admin/ui
 curl -fsS https://<ui-fqdn>/admin/health
-curl -fsS https://<mcp-fqdn>/health
 ```
 
 Durable starter check:

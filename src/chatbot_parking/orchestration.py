@@ -125,15 +125,22 @@ def build_graph() -> StateGraph:
 
 
 def run_demo() -> WorkflowState:
+    return run_workflow(
+        user_input="I want to book a parking spot",
+        booking_inputs=[
+            "Alex",
+            "Morgan",
+            "XY-1234",
+            "2026-02-20 09:00 to 2026-02-20 18:00",
+        ],
+    )
+
+
+def run_workflow(user_input: str, booking_inputs: list[str]) -> WorkflowState:
     workflow = build_graph().compile()
     return workflow.invoke(
         WorkflowState(
-            user_input="I want to book a parking spot",
-            booking_inputs=[
-                "Alex",
-                "Morgan",
-                "XY-1234",
-                "2026-02-20 09:00 to 2026-02-20 18:00",
-            ],
+            user_input=user_input,
+            booking_inputs=booking_inputs,
         )
     )

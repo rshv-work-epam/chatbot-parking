@@ -5,25 +5,16 @@ from __future__ import annotations
 import argparse
 from collections.abc import Callable, Sequence
 
+from chatbot_parking.booking_utils import is_booking_keyword_intent, parse_structured_details
 from chatbot_parking.chatbot import ParkingChatbot
 from chatbot_parking.orchestration import WorkflowState, build_graph, run_demo
-
-RESERVATION_KEYWORDS = [
-    "reserve",
-    "reservation",
-    "book",
-    "booking",
-    "бронь",
-    "забронювати",
-    "бронювання",
-]
 
 
 def is_reservation_intent(text: str) -> bool:
     """Return True when the input requests reservation flow."""
-
-    lowered = text.lower()
-    return any(keyword in lowered for keyword in RESERVATION_KEYWORDS)
+    if parse_structured_details(text):
+        return True
+    return is_booking_keyword_intent(text)
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -134,4 +125,3 @@ def run(argv: Sequence[str] | None = None) -> None:
         run_interactive()
         return
     run_demo_mode()
-

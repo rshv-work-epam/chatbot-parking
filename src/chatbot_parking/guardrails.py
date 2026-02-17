@@ -1,5 +1,7 @@
 """Guard rails to prevent sensitive data exposure."""
 
+from functools import lru_cache
+import os
 import re
 from typing import Iterable
 
@@ -13,8 +15,40 @@ SENSITIVE_PATTERNS = [
 ]
 
 
+@lru_cache(maxsize=1)
+def _load_ner_pipeline():
+    if os.getenv("GUARDRAILS_USE_ML", "false").lower() != "true":
+        return None
+    try:
+        from transformers import pipeline
+
+        model_name = os.getenv("GUARDRAILS_NER_MODEL", "dslim/bert-base-NER")
+        return pipeline(
+            "token-classification",
+            model=model_name,
+            aggregation_strategy="simple",
+        )
+    except Exception:
+        return None
+
+
+def _contains_sensitive_via_ml(text: str) -> bool:
+    ner = _load_ner_pipeline()
+    if ner is None:
+        return False
+    try:
+        entities = ner(text[:1000])
+    except Exception:
+        return False
+
+    sensitive_groups = {"PER", "PERSON", "EMAIL", "PHONE"}
+    return any(entity.get("entity_group") in sensitive_groups for entity in entities)
+
+
 def contains_sensitive_data(text: str) -> bool:
-    return any(pattern.search(text) for pattern in SENSITIVE_PATTERNS)
+    if any(pattern.search(text) for pattern in SENSITIVE_PATTERNS):
+        return True
+    return _contains_sensitive_via_ml(text)
 
 
 def filter_sensitive(chunks: Iterable[str]) -> list[str]:
@@ -25,6 +59,8 @@ def redact_sensitive(text: str) -> str:
     redacted = text
     for pattern in SENSITIVE_PATTERNS:
         redacted = pattern.sub("[REDACTED]", redacted)
+    if _contains_sensitive_via_ml(redacted):
+        return "[REDACTED]"
     return redacted
 
 

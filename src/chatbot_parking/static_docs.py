@@ -7,18 +7,22 @@ import os
 from pathlib import Path
 
 def _find_data_path() -> Path:
-    """Find the data directory, trying multiple possible locations."""
+    """Resolve static documents path from env or known repository locations."""
+    explicit = os.getenv("STATIC_DOCS_PATH")
+    if explicit:
+        path = Path(explicit)
+        if path.exists():
+            return path
+
     possible_paths = [
-        Path(__file__).parent.parent.parent / "data" / "static_docs.json",
-        Path("/workspaces/chatbot-parking/data/static_docs.json"),
-        Path("./data/static_docs.json"),
-        Path("../data/static_docs.json"),
+        Path(__file__).resolve().parents[2] / "data" / "static_docs.json",
+        Path.cwd() / "data" / "static_docs.json",
     ]
-    
+
     for path in possible_paths:
         if path.exists():
             return path
-    
+
     raise FileNotFoundError(f"Static documents not found. Tried: {[str(p) for p in possible_paths]}")
 
 DATA_PATH = _find_data_path()

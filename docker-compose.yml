@@ -8,15 +8,6 @@ services:
       - "8000:8000"
     environment:
       ADMIN_API_TOKEN: change-me
-
-  mcp_server:
-    build: .
-    command: uvicorn chatbot_parking.mcp_server:app --host 0.0.0.0 --port 8001
-    environment:
-      MCP_API_TOKEN: change-me
-    ports:
-      - "8001:8001"
-
   weaviate:
     image: semitechnologies/weaviate:1.25.4
     ports:

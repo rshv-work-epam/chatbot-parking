@@ -11,9 +11,6 @@
     "uiContainerAppName": {
       "value": "chatbot-parking-ui"
     },
-    "mcpContainerAppName": {
-      "value": "chatbot-parking-mcp"
-    },
     "functionAppName": {
       "value": "chatbot-parking-func"
     },
