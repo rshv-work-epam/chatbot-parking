@@ -29,7 +29,26 @@ from chatbot_parking.persistence import get_persistence
 app = FastAPI(title="Parking Chat + Admin UI")
 chatbot = ParkingChatbot()
 
-UI_DIR = Path(__file__).resolve().parents[2] / "scripts"
+
+def _resolve_ui_dir() -> Path:
+    env_dir = os.getenv("UI_DIR")
+    candidates: list[Path] = []
+    if env_dir:
+        candidates.append(Path(env_dir))
+    candidates.extend(
+        [
+            Path("/app/scripts"),
+            Path(__file__).resolve().parents[2] / "scripts",
+            Path(__file__).resolve().parents[3] / "scripts",
+        ]
+    )
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
+UI_DIR = _resolve_ui_dir()
 
 
 def _build_admin_headers() -> dict[str, str]:
