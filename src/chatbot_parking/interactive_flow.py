@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import re
 from typing import Any
 
 from chatbot_parking.persistence import Persistence
@@ -14,6 +15,13 @@ FIELD_PROMPTS: dict[str, str] = {
     "car_number": "What is your car number?",
     "reservation_period": "What reservation period would you like (e.g., 2026-02-20 09:00 to 2026-02-20 18:00)?",
 }
+
+NAME_RE = re.compile(r"^[A-Za-z][A-Za-z' -]{1,49}$")
+CAR_RE = re.compile(r"^[A-Z0-9-]{4,12}$")
+PERIOD_RE = re.compile(
+    r"^\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\s+to\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\s*$",
+    re.IGNORECASE,
+)
 
 
 def _next_field(current: str | None) -> str | None:
@@ -27,6 +35,31 @@ def _is_booking_intent(message: str) -> bool:
     lowered = message.lower()
     keywords = ["book", "reserve", "reservation", "броню", "заброню"]
     return any(word in lowered for word in keywords)
+
+
+def _validate_field(field: str, value: str) -> str | None:
+    if field in {"name", "surname"}:
+        if not NAME_RE.fullmatch(value):
+            return "Use only letters, spaces, apostrophe, or hyphen (2-50 chars)."
+        return None
+
+    if field == "car_number":
+        normalized = value.upper().replace(" ", "")
+        if not CAR_RE.fullmatch(normalized):
+            return "Car number must be 4-12 chars: letters, digits, or '-' only."
+        return None
+
+    if field == "reservation_period":
+        match = PERIOD_RE.match(value)
+        if not match:
+            return "Use format: YYYY-MM-DD HH:MM to YYYY-MM-DD HH:MM."
+        start = datetime.strptime(match.group(1), "%Y-%m-%d %H:%M")
+        end = datetime.strptime(match.group(2), "%Y-%m-%d %H:%M")
+        if end <= start:
+            return "Reservation end time must be after start time."
+        return None
+
+    return None
 
 
 def default_state() -> dict[str, Any]:
@@ -150,7 +183,29 @@ def run_chat_turn(
         )
 
     if booking_active and pending_field:
-        collected[pending_field] = text
+        error = _validate_field(pending_field, text)
+        if error:
+            next_state = _state_with(
+                current,
+                mode="booking",
+                booking_active=True,
+                pending_field=pending_field,
+                collected=collected,
+                status="collecting",
+            )
+            return (
+                {
+                    "response": f"Invalid {pending_field}: {error} {FIELD_PROMPTS[pending_field]}",
+                    "mode": "booking",
+                    "status": "collecting",
+                },
+                next_state,
+            )
+
+        if pending_field == "car_number":
+            collected[pending_field] = text.upper().replace(" ", "")
+        else:
+            collected[pending_field] = text
         next_field = _next_field(pending_field)
         if next_field is not None:
             next_state = _state_with(
