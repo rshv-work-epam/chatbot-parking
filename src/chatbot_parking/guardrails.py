@@ -17,7 +17,7 @@ SENSITIVE_PATTERNS = [
 
 @lru_cache(maxsize=1)
 def _load_ner_pipeline():
-    if os.getenv("GUARDRAILS_USE_ML", "false").lower() != "true":
+    if os.getenv("GUARDRAILS_USE_ML", "true").lower() != "true":
         return None
     try:
         from transformers import pipeline
