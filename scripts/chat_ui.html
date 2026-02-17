@@ -108,6 +108,19 @@
         border-radius: 10px;
       }
 
+      .auth-panel {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px;
+        margin-bottom: 12px;
+        background: #f9fbff;
+      }
+
+      .auth-status {
+        color: var(--muted);
+        margin-bottom: 8px;
+      }
+
       #messages {
         border: 1px solid var(--border);
         border-radius: 10px;
@@ -184,6 +197,11 @@
 
         <p><a href="/admin/ui">Open Admin Approval UI</a></p>
 
+        <div class="auth-panel">
+          <div id="auth-status" class="auth-status">Checking sign-in...</div>
+          <div id="auth-actions" class="actions" style="margin-bottom:0;"></div>
+        </div>
+
         <div class="progress-wrap">
           <div class="progress-meta">
             <span id="progress-text">Booking progress: 0/5</span>
@@ -223,18 +241,21 @@
       const errorBanner = document.getElementById('error-banner');
       const errorText = document.getElementById('error-text');
       const retryBtn = document.getElementById('retry-btn');
+      const authStatus = document.getElementById('auth-status');
+      const authActions = document.getElementById('auth-actions');
 
       let lastMessageForRetry = null;
+      let currentThreadStorageKey = THREAD_ID_KEY;
 
       function generateThreadId() {
         return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
       }
 
       function getThreadId() {
-        let threadId = localStorage.getItem(THREAD_ID_KEY);
+        let threadId = localStorage.getItem(currentThreadStorageKey);
         if (!threadId) {
           threadId = generateThreadId();
-          localStorage.setItem(THREAD_ID_KEY, threadId);
+          localStorage.setItem(currentThreadStorageKey, threadId);
         }
         return threadId;
       }
@@ -314,6 +335,68 @@
         append('bot', `Suggested alternatives:\n- ${list.join('\n- ')}`);
       }
 
+      async function readResponsePayload(response) {
+        const contentType = response.headers.get('content-type') || '';
+        if (contentType.toLowerCase().includes('application/json')) {
+          try {
+            return await response.json();
+          } catch (_error) {
+            return { detail: 'Failed to parse JSON response.' };
+          }
+        }
+        const text = await response.text();
+        return { detail: text || 'Unexpected non-JSON response.' };
+      }
+
+      async function loadAuthState() {
+        authActions.innerHTML = '';
+
+        const [meResp, providersResp] = await Promise.all([
+          fetch('/auth/me'),
+          fetch('/auth/providers'),
+        ]);
+        const me = await readResponsePayload(meResp);
+        const providers = await readResponsePayload(providersResp);
+        const providerList = Array.isArray(providers?.providers) ? providers.providers : [];
+
+        if (me?.authenticated) {
+          const user = me.user || {};
+          const who = user.name || user.email || user.id || 'user';
+          currentThreadStorageKey = `${THREAD_ID_KEY}:${user.id || 'session'}`;
+          authStatus.textContent = `Signed in as ${who} (${user.provider || 'session'})`;
+          const logoutButton = document.createElement('button');
+          logoutButton.type = 'button';
+          logoutButton.className = 'btn';
+          logoutButton.textContent = 'Logout';
+          logoutButton.addEventListener('click', async () => {
+            await fetch('/auth/logout', { method: 'POST' });
+            localStorage.removeItem(currentThreadStorageKey);
+            window.location.reload();
+          });
+          authActions.appendChild(logoutButton);
+          return;
+        }
+
+        currentThreadStorageKey = THREAD_ID_KEY;
+
+        if (providerList.length === 0) {
+          authStatus.textContent = 'Guest mode (OAuth providers are not configured).';
+          return;
+        }
+
+        authStatus.textContent = 'Sign in to keep separate conversation history per user:';
+        for (const provider of providerList) {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'btn';
+          button.textContent = `Login with ${provider.name || provider.id}`;
+          button.addEventListener('click', () => {
+            window.location.href = `/auth/login/${provider.id}`;
+          });
+          authActions.appendChild(button);
+        }
+      }
+
       async function sendMessage(message, echoUser = true) {
         const text = (message || '').trim();
         if (!text) return;
@@ -330,16 +413,16 @@
             body: JSON.stringify({ message: text, thread_id: getThreadId() }),
           });
 
-          const data = await response.json();
+          const data = await readResponsePayload(response);
           if (!response.ok) {
             const detail = data?.detail || 'Request failed';
             append('bot', `Sorry, I could not process that right now. ${detail}`);
-            showError('Backend request failed. You can retry your last message.');
+            showError(`Backend request failed (${response.status}). You can retry your last message.`);
             return;
           }
 
           if (data.thread_id) {
-            localStorage.setItem(THREAD_ID_KEY, data.thread_id);
+            localStorage.setItem(currentThreadStorageKey, data.thread_id);
           }
 
           append('bot', data.response || '(empty response)');
@@ -369,6 +452,9 @@
       append('bot', 'Hello! Ask for parking info or start a booking request.');
       setProgress(null, 'Ask a question or start a booking.');
       setChip('info', 'collecting', 'Info mode');
+      loadAuthState().catch(() => {
+        authStatus.textContent = 'Auth status is currently unavailable.';
+      });
     </script>
   </body>
 </html>

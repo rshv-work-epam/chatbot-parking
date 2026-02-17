@@ -636,7 +636,13 @@ def run_chat_turn(
             next_state,
         )
 
-    response = answer_question(text)
+    try:
+        response = answer_question(text)
+    except Exception:
+        response = (
+            "I cannot answer right now because the AI provider is unavailable. "
+            "Please retry in a moment or start a booking request."
+        )
     next_state = _state_with(
         current,
         mode="info",

@@ -1,18 +1,26 @@
-"""FastAPI server exposing prompt UI and admin UI for local and cloud usage."""
+"""FastAPI server exposing prompt UI, admin UI, auth, and channel adapters."""
 
 from __future__ import annotations
 
 from pathlib import Path
+import hmac
+import hashlib
 import os
 import time
-from typing import Optional
+from typing import Any, Optional
 from urllib import request
 from uuid import uuid4
 import json
 
-from fastapi import Depends, FastAPI, Header, HTTPException
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
+from starlette.middleware.sessions import SessionMiddleware
+
+try:
+    from authlib.integrations.starlette_client import OAuth
+except Exception:  # pragma: no cover - optional runtime dependency
+    OAuth = None
 
 from chatbot_parking.admin_store import (
     create_admin_request,
@@ -50,6 +58,72 @@ def _resolve_ui_dir() -> Path:
 
 UI_DIR = _resolve_ui_dir()
 
+SESSION_SECRET = os.getenv("SESSION_SECRET_KEY") or os.getenv("ADMIN_UI_TOKEN") or "dev-session-secret"
+SESSION_HTTPS_ONLY = os.getenv("SESSION_HTTPS_ONLY", "false").strip().lower() == "true"
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=SESSION_SECRET,
+    same_site="lax",
+    https_only=SESSION_HTTPS_ONLY,
+)
+
+PROVIDER_TITLES: dict[str, str] = {
+    "google": "Google",
+    "github": "GitHub",
+    "linkedin": "LinkedIn",
+    "microsoft": "Microsoft",
+    "apple": "Apple",
+}
+
+OAUTH_PROVIDER_CONFIGS: dict[str, dict[str, Any]] = {
+    "google": {
+        "server_metadata_url": "https://accounts.google.com/.well-known/openid-configuration",
+        "client_kwargs": {"scope": "openid email profile"},
+    },
+    "microsoft": {
+        "server_metadata_url": "https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration",
+        "client_kwargs": {"scope": "openid profile email User.Read"},
+    },
+    "apple": {
+        "server_metadata_url": "https://appleid.apple.com/.well-known/openid-configuration",
+        "client_kwargs": {"scope": "name email"},
+    },
+    "github": {
+        "api_base_url": "https://api.github.com/",
+        "access_token_url": "https://github.com/login/oauth/access_token",
+        "authorize_url": "https://github.com/login/oauth/authorize",
+        "client_kwargs": {"scope": "read:user user:email"},
+    },
+    "linkedin": {
+        "server_metadata_url": "https://www.linkedin.com/oauth/.well-known/openid-configuration",
+        "client_kwargs": {"scope": "openid profile email"},
+    },
+}
+
+
+def _init_oauth() -> tuple[Any, list[str]]:
+    if OAuth is None:
+        return None, []
+
+    oauth = OAuth()
+    enabled: list[str] = []
+    for provider, config in OAUTH_PROVIDER_CONFIGS.items():
+        client_id = os.getenv(f"OAUTH_{provider.upper()}_CLIENT_ID")
+        client_secret = os.getenv(f"OAUTH_{provider.upper()}_CLIENT_SECRET")
+        if not client_id or not client_secret:
+            continue
+        oauth.register(
+            name=provider,
+            client_id=client_id,
+            client_secret=client_secret,
+            **config,
+        )
+        enabled.append(provider)
+    return oauth, enabled
+
+
+oauth_client, enabled_oauth_providers = _init_oauth()
+
 
 def _build_admin_headers() -> dict[str, str]:
     headers = {"Content-Type": "application/json"}
@@ -59,21 +133,25 @@ def _build_admin_headers() -> dict[str, str]:
     return headers
 
 
-def _post_json(url: str, payload: dict) -> dict:
+def _post_json(url: str, payload: dict, headers: dict[str, str] | None = None) -> dict:
+    merged_headers = dict(headers or {})
+    merged_headers.setdefault("Content-Type", "application/json")
     req = request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
-        headers=_build_admin_headers(),
+        headers=merged_headers,
         method="POST",
     )
     with request.urlopen(req, timeout=20) as response:
-        return json.loads(response.read().decode("utf-8"))
+        body = response.read().decode("utf-8")
+        return json.loads(body) if body else {}
 
 
-def _get_json(url: str) -> dict:
-    req = request.Request(url, headers=_build_admin_headers(), method="GET")
+def _get_json(url: str, headers: dict[str, str] | None = None) -> dict:
+    req = request.Request(url, headers=headers or {}, method="GET")
     with request.urlopen(req, timeout=20) as response:
-        return json.loads(response.read().decode("utf-8"))
+        body = response.read().decode("utf-8")
+        return json.loads(body) if body else {}
 
 
 def _invoke_durable_chat(message: str, thread_id: str) -> dict:
@@ -82,7 +160,7 @@ def _invoke_durable_chat(message: str, thread_id: str) -> dict:
         raise RuntimeError("DURABLE_BASE_URL is not configured")
 
     start_url = f"{base_url}/api/chat/start"
-    starter = _post_json(start_url, {"message": message, "thread_id": thread_id})
+    starter = _post_json(start_url, {"message": message, "thread_id": thread_id}, headers=_build_admin_headers())
 
     status_url = starter.get("statusQueryGetUri")
     if not status_url:
@@ -93,7 +171,7 @@ def _invoke_durable_chat(message: str, thread_id: str) -> dict:
     deadline = time.time() + timeout_seconds
 
     while time.time() < deadline:
-        status = _get_json(status_url)
+        status = _get_json(status_url, headers=_build_admin_headers())
         runtime_status = status.get("runtimeStatus")
 
         if runtime_status == "Completed":
@@ -110,10 +188,95 @@ def _invoke_durable_chat(message: str, thread_id: str) -> dict:
     raise RuntimeError("Timed out waiting for Durable orchestration result")
 
 
+def _normalize_user(provider: str, userinfo: dict[str, Any]) -> dict[str, Any]:
+    user_id = str(
+        userinfo.get("sub")
+        or userinfo.get("id")
+        or userinfo.get("user_id")
+        or userinfo.get("email")
+        or "unknown"
+    )
+    name = userinfo.get("name") or userinfo.get("login") or userinfo.get("preferred_username")
+    email = userinfo.get("email")
+    picture = userinfo.get("picture") or userinfo.get("avatar_url")
+    return {
+        "id": user_id,
+        "provider": provider,
+        "name": name,
+        "email": email,
+        "picture": picture,
+    }
+
+
+def _extract_session_user(req: Request) -> dict[str, Any] | None:
+    raw = req.session.get("user")
+    if isinstance(raw, dict):
+        return raw
+    return None
+
+
+def _resolve_thread_id(req: Request, explicit_thread_id: str | None) -> str:
+    if explicit_thread_id:
+        return explicit_thread_id
+
+    user = _extract_session_user(req)
+    user_id = str((user or {}).get("id", "")).strip()
+    if user_id:
+        return f"user:{user_id}"
+
+    return str(uuid4())
+
+
+def _run_chat_turn(thread_id: str, message: str) -> dict[str, Any]:
+    # Prefer durable cloud execution when configured.
+    if os.getenv("DURABLE_BASE_URL"):
+        result = _invoke_durable_chat(message=message, thread_id=thread_id)
+        result.setdefault("thread_id", thread_id)
+        result.setdefault("mode", "info")
+        result.setdefault("status", "collecting")
+        result.setdefault("response", "")
+        return result
+
+    persistence = get_persistence()
+    prior_state = persistence.get_thread(thread_id)
+    result, next_state = run_chat_turn(
+        message=message,
+        state=prior_state,
+        persistence=persistence,
+        answer_question=chatbot.answer_question,
+    )
+    persistence.upsert_thread(thread_id, next_state)
+
+    response: dict[str, Any] = {
+        **result,
+        "thread_id": thread_id,
+    }
+    response.setdefault("response", "")
+    response.setdefault("mode", "info")
+    response.setdefault("status", "collecting")
+    return response
+
+
 def _require_admin_token(x_api_token: str | None = Header(default=None)) -> None:
     expected = os.getenv("ADMIN_UI_TOKEN")
     if expected and x_api_token != expected:
         raise HTTPException(status_code=401, detail="Invalid admin token")
+
+
+def _validate_slack_signature(raw_body: bytes, req: Request) -> bool:
+    signing_secret = os.getenv("SLACK_SIGNING_SECRET")
+    if not signing_secret:
+        return True
+
+    timestamp = req.headers.get("x-slack-request-timestamp", "")
+    signature = req.headers.get("x-slack-signature", "")
+    if not timestamp or not signature:
+        return False
+
+    base = f"v0:{timestamp}:{raw_body.decode('utf-8')}".encode("utf-8")
+    digest = hmac.new(signing_secret.encode("utf-8"), base, hashlib.sha256).hexdigest()
+    expected = f"v0={digest}"
+    return hmac.compare_digest(expected, signature)
 
 
 class RequestIn(BaseModel):
@@ -138,9 +301,106 @@ class ChatMessageIn(BaseModel):
     thread_id: Optional[str] = None
 
 
+class GenericChannelMessageIn(BaseModel):
+    channel: str
+    user_id: str
+    message: str
+    thread_id: Optional[str] = None
+
+
+class OpenAIToolMessageIn(BaseModel):
+    input: str
+    user_id: str
+    thread_id: Optional[str] = None
+
+
+@app.exception_handler(Exception)
+async def handle_unexpected_exception(_req: Request, _exc: Exception):
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
+
 @app.get("/admin/health")
 def admin_health() -> dict:
     return {"status": "ok", "service": "ui_admin_api"}
+
+
+@app.get("/auth/providers")
+def auth_providers() -> dict[str, Any]:
+    return {
+        "providers": [
+            {"id": provider, "name": PROVIDER_TITLES.get(provider, provider.title())}
+            for provider in enabled_oauth_providers
+        ]
+    }
+
+
+@app.get("/auth/me")
+def auth_me(req: Request) -> dict[str, Any]:
+    user = _extract_session_user(req)
+    return {"authenticated": bool(user), "user": user}
+
+
+@app.post("/auth/logout")
+def auth_logout(req: Request):
+    req.session.pop("user", None)
+    return {"ok": True}
+
+
+@app.get("/auth/login/{provider}")
+async def auth_login(provider: str, req: Request):
+    if oauth_client is None:
+        raise HTTPException(status_code=503, detail="OAuth is not enabled")
+
+    if provider not in enabled_oauth_providers:
+        raise HTTPException(status_code=404, detail="OAuth provider is not configured")
+
+    client = oauth_client.create_client(provider)
+    if client is None:
+        raise HTTPException(status_code=404, detail="OAuth provider is not available")
+
+    redirect_uri = str(req.url_for("auth_callback", provider=provider))
+    return await client.authorize_redirect(req, redirect_uri)
+
+
+@app.get("/auth/callback/{provider}", name="auth_callback")
+@app.post("/auth/callback/{provider}", name="auth_callback_post")
+async def auth_callback(provider: str, req: Request):
+    if oauth_client is None or provider not in enabled_oauth_providers:
+        raise HTTPException(status_code=404, detail="OAuth provider is not configured")
+
+    client = oauth_client.create_client(provider)
+    if client is None:
+        raise HTTPException(status_code=404, detail="OAuth provider is not available")
+
+    token = await client.authorize_access_token(req)
+    userinfo: dict[str, Any] = {}
+
+    try:
+        # OIDC providers
+        userinfo = token.get("userinfo") or await client.parse_id_token(req, token)
+    except Exception:
+        userinfo = {}
+
+    if provider == "github" and not userinfo:
+        user_response = await client.get("user", token=token)
+        userinfo = user_response.json() if user_response else {}
+        try:
+            emails_response = await client.get("user/emails", token=token)
+            emails = emails_response.json() if emails_response else []
+            primary = next((item for item in emails if item.get("primary")), None)
+            if primary and primary.get("email"):
+                userinfo["email"] = primary["email"]
+        except Exception:
+            pass
+
+    if not userinfo:
+        userinfo = {
+            "sub": token.get("sub") or token.get("access_token", "")[:12] or "unknown",
+            "name": provider,
+        }
+
+    req.session["user"] = _normalize_user(provider, userinfo)
+    return RedirectResponse(url="/chat/ui", status_code=302)
 
 
 @app.post("/chat/ask")
@@ -157,45 +417,29 @@ def ask_chatbot(payload: ChatPromptIn):
             )
         }
 
-    return {"response": chatbot.answer_question(message)}
+    try:
+        return {"response": chatbot.answer_question(message)}
+    except Exception:
+        return {
+            "response": (
+                "I cannot answer right now because the AI provider is unavailable. "
+                "Please retry in a moment."
+            )
+        }
 
 
 @app.post("/chat/message")
-def chat_message(payload: ChatMessageIn):
+def chat_message(payload: ChatMessageIn, req: Request):
     message = payload.message.strip()
     if not message:
         raise HTTPException(status_code=400, detail="Message cannot be empty")
 
-    thread_id = payload.thread_id or str(uuid4())
+    thread_id = _resolve_thread_id(req, payload.thread_id)
 
-    # Prefer durable cloud execution when configured.
-    if os.getenv("DURABLE_BASE_URL"):
-        try:
-            result = _invoke_durable_chat(message=message, thread_id=thread_id)
-            result.setdefault("thread_id", thread_id)
-            result.setdefault("mode", "info")
-            return result
-        except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"Durable backend error: {exc}") from exc
-
-    persistence = get_persistence()
-    prior_state = persistence.get_thread(thread_id)
-    result, next_state = run_chat_turn(
-        message=message,
-        state=prior_state,
-        persistence=persistence,
-        answer_question=chatbot.answer_question,
-    )
-    persistence.upsert_thread(thread_id, next_state)
-
-    response: dict[str, object] = {
-        **result,
-        "thread_id": thread_id,
-    }
-    response.setdefault("response", "")
-    response.setdefault("mode", "info")
-    response.setdefault("status", "collecting")
-    return response
+    try:
+        return _run_chat_turn(thread_id=thread_id, message=message)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Chat backend error: {exc}") from exc
 
 
 @app.get("/chat/status/{thread_id}")
@@ -255,6 +499,160 @@ def admin_ui():
     if not ui_path.exists():
         raise HTTPException(status_code=404, detail="UI not found")
     return FileResponse(ui_path, media_type="text/html")
+
+
+@app.post("/channels/generic/message")
+def channel_generic_message(payload: GenericChannelMessageIn):
+    message = payload.message.strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+
+    thread_id = payload.thread_id or f"{payload.channel}:{payload.user_id}"
+    result = _run_chat_turn(thread_id=thread_id, message=message)
+    return {
+        "channel": payload.channel,
+        "user_id": payload.user_id,
+        "thread_id": thread_id,
+        "response": result.get("response", ""),
+        "status": result.get("status", "collecting"),
+    }
+
+
+@app.post("/channels/openai/tool")
+def openai_tool_message(payload: OpenAIToolMessageIn):
+    message = payload.input.strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Input cannot be empty")
+
+    thread_id = payload.thread_id or f"openai:{payload.user_id}"
+    result = _run_chat_turn(thread_id=thread_id, message=message)
+    return {
+        "output": result.get("response", ""),
+        "thread_id": thread_id,
+        "status": result.get("status", "collecting"),
+    }
+
+
+@app.post("/channels/telegram/webhook/{token}")
+def telegram_webhook(token: str, payload: dict[str, Any]):
+    configured_token = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not configured_token:
+        raise HTTPException(status_code=503, detail="Telegram bot token is not configured")
+    if token != configured_token:
+        raise HTTPException(status_code=401, detail="Invalid Telegram webhook token")
+
+    message_block = payload.get("message") or payload.get("edited_message") or {}
+    chat = message_block.get("chat") or {}
+    chat_id = chat.get("id")
+    text = str(message_block.get("text") or "").strip()
+
+    if not chat_id or not text:
+        return {"ok": True}
+
+    thread_id = f"telegram:{chat_id}"
+    result = _run_chat_turn(thread_id=thread_id, message=text)
+
+    telegram_url = f"https://api.telegram.org/bot{configured_token}/sendMessage"
+    _post_json(
+        telegram_url,
+        {
+            "chat_id": chat_id,
+            "text": result.get("response", ""),
+        },
+    )
+    return {"ok": True}
+
+
+@app.post("/channels/slack/events")
+async def slack_events(req: Request):
+    raw_body = await req.body()
+    if not _validate_slack_signature(raw_body, req):
+        raise HTTPException(status_code=401, detail="Invalid Slack signature")
+
+    payload = await req.json()
+
+    if payload.get("type") == "url_verification":
+        return {"challenge": payload.get("challenge")}
+
+    event = payload.get("event") or {}
+    if event.get("type") != "message" or event.get("bot_id"):
+        return {"ok": True}
+
+    text = str(event.get("text") or "").strip()
+    user_id = str(event.get("user") or "")
+    channel_id = str(event.get("channel") or "")
+    if not text or not user_id or not channel_id:
+        return {"ok": True}
+
+    thread_id = f"slack:{channel_id}:{user_id}"
+    result = _run_chat_turn(thread_id=thread_id, message=text)
+
+    slack_token = os.getenv("SLACK_BOT_TOKEN")
+    if slack_token:
+        _post_json(
+            "https://slack.com/api/chat.postMessage",
+            {
+                "channel": channel_id,
+                "text": result.get("response", ""),
+            },
+            headers={
+                "Authorization": f"Bearer {slack_token}",
+                "Content-Type": "application/json; charset=utf-8",
+            },
+        )
+
+    return {"ok": True}
+
+
+@app.get("/channels/whatsapp/webhook")
+def whatsapp_verify(
+    mode: str = Query(default="", alias="hub.mode"),
+    challenge: str = Query(default="", alias="hub.challenge"),
+    verify_token: str = Query(default="", alias="hub.verify_token"),
+):
+    configured = os.getenv("WHATSAPP_VERIFY_TOKEN")
+    if mode == "subscribe" and configured and verify_token == configured:
+        return int(challenge) if challenge.isdigit() else challenge
+    raise HTTPException(status_code=403, detail="Invalid WhatsApp verify token")
+
+
+@app.post("/channels/whatsapp/webhook")
+def whatsapp_webhook(payload: dict[str, Any]):
+    entries = payload.get("entry") or []
+    if not entries:
+        return {"ok": True}
+
+    access_token = os.getenv("WHATSAPP_ACCESS_TOKEN")
+    phone_number_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
+
+    for entry in entries:
+        for change in entry.get("changes") or []:
+            value = change.get("value") or {}
+            messages = value.get("messages") or []
+            for message in messages:
+                from_number = str(message.get("from") or "")
+                text = str((message.get("text") or {}).get("body") or "").strip()
+                if not from_number or not text:
+                    continue
+
+                thread_id = f"whatsapp:{from_number}"
+                result = _run_chat_turn(thread_id=thread_id, message=text)
+
+                if access_token and phone_number_id:
+                    _post_json(
+                        f"https://graph.facebook.com/v21.0/{phone_number_id}/messages",
+                        {
+                            "messaging_product": "whatsapp",
+                            "to": from_number,
+                            "text": {"body": result.get("response", "")},
+                        },
+                        headers={
+                            "Authorization": f"Bearer {access_token}",
+                            "Content-Type": "application/json",
+                        },
+                    )
+
+    return {"ok": True}
 
 
 @app.get("/")

@@ -165,6 +165,12 @@ def _build_llm() -> LLM:
         from langchain_openai import ChatOpenAI
 
         return ChatOpenAI(model=settings.llm_model, api_key=settings.openai_api_key)
+    if settings.llm_provider == "gemini":
+        from langchain_google_genai import ChatGoogleGenerativeAI
+
+        if not settings.google_api_key:
+            raise ValueError("GOOGLE_API_KEY must be set for Gemini provider.")
+        return ChatGoogleGenerativeAI(model=settings.llm_model, google_api_key=settings.google_api_key)
     if settings.llm_provider == "azure_openai":
         from langchain_openai import AzureChatOpenAI
 
