@@ -122,17 +122,17 @@ Approve or decline in the browser—decided items disappear from the pending lis
 python data/ingest.py
 ```
 
-## Running the Admin API
+## Running the Admin UI/API (Recommended)
 
 ```bash
-export ADMIN_API_TOKEN=change-me
-uvicorn chatbot_parking.admin_api:app --reload
+export ADMIN_UI_TOKEN=change-me
+uvicorn chatbot_parking.web_demo_server:app --reload
 ```
 
-Set `ADMIN_API_URL=http://localhost:8000` to submit booking requests.
+Set `ADMIN_API_URL=http://localhost:8000` to submit booking requests from the orchestration.
 Use `ADMIN_AUTO_APPROVE=true|false` to toggle auto-approval. When disabled, post a decision via
 `POST /admin/decision` or inspect pending requests via `GET /admin/requests`.
-Requests require `x-api-token: $ADMIN_API_TOKEN`.
+Requests require `x-api-token: $ADMIN_UI_TOKEN` (legacy `ADMIN_API_TOKEN` is also accepted).
 
 ## MCP (Real Protocol, Stdio)
 

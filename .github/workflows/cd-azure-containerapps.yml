@@ -97,7 +97,7 @@ jobs:
           az containerapp secret set \
             --resource-group "$RESOURCE_GROUP" \
             --name "${{ matrix.app_name }}" \
-            --secrets durable-function-key="$FUNC_KEY"
+            --secrets durable-function-key="$FUNC_KEY" admin-ui-token="${{ secrets.ADMIN_UI_TOKEN }}"
 
           az containerapp update \
             --resource-group "$RESOURCE_GROUP" \
@@ -105,7 +105,7 @@ jobs:
             --image "$FULL_IMAGE" \
             --set-env-vars \
               APP_ENV=prod \
-              ADMIN_UI_TOKEN='${{ secrets.ADMIN_UI_TOKEN }}' \
+              ADMIN_UI_TOKEN=secretref:admin-ui-token \
               DURABLE_BASE_URL="https://${FUNC_NAME}.azurewebsites.net" \
               DURABLE_FUNCTION_KEY=secretref:durable-function-key \
               PARKING_DB_PATH=/tmp/parking.db \

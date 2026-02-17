@@ -19,7 +19,7 @@ app = FastAPI(title="Parking Admin API")
 
 
 def _require_admin_token(x_api_token: str | None = Header(default=None)) -> None:
-    expected = os.getenv("ADMIN_API_TOKEN")
+    expected = os.getenv("ADMIN_UI_TOKEN") or os.getenv("ADMIN_API_TOKEN")
     if expected and x_api_token != expected:
         raise HTTPException(status_code=401, detail="Invalid admin API token")
 

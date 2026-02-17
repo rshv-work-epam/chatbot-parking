@@ -7,7 +7,8 @@ services:
     ports:
       - "8000:8000"
     environment:
-      ADMIN_API_TOKEN: change-me
+      # Used by /admin/* endpoints (x-api-token header).
+      ADMIN_UI_TOKEN: change-me
   weaviate:
     image: semitechnologies/weaviate:1.25.4
     ports:

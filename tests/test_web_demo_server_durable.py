@@ -31,6 +31,39 @@ def test_chat_message_uses_durable_when_configured(monkeypatch):
     assert response.json()["response"] == "hi from durable"
 
 
+def test_durable_status_poll_does_not_send_function_key_header(monkeypatch):
+    monkeypatch.setenv("DURABLE_BASE_URL", "https://func.example")
+    monkeypatch.setenv("DURABLE_FUNCTION_KEY", "func-key")
+
+    def fake_post_json(url: str, payload: dict, headers: dict | None = None) -> dict:
+        assert url == "https://func.example/api/chat/start"
+        assert (headers or {}).get("x-functions-key") == "func-key"
+        return {
+            "statusQueryGetUri": (
+                "https://func.example/runtime/webhooks/durabletask/instances/abc?code=XYZ"
+            )
+        }
+
+    seen_headers: list[dict] = []
+
+    def fake_get_json(url: str, headers: dict | None = None) -> dict:
+        # Durable webhook URIs include a `code` query param. We should not send x-functions-key,
+        # otherwise the runtime may respond 403.
+        seen_headers.append(dict(headers or {}))
+        assert "x-functions-key" not in (headers or {})
+        return {
+            "runtimeStatus": "Completed",
+            "output": {"response": "ok", "mode": "booking", "status": "collecting"},
+        }
+
+    monkeypatch.setattr(web_demo_server, "_post_json", fake_post_json)
+    monkeypatch.setattr(web_demo_server, "_get_json", fake_get_json)
+
+    result = web_demo_server._invoke_durable_chat("hello", "thread-123")
+    assert result["response"] == "ok"
+    assert seen_headers == [{}]
+
+
 def test_admin_requests_require_token_when_configured(monkeypatch):
     monkeypatch.setenv("ADMIN_UI_TOKEN", "secret")
 

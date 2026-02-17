@@ -27,7 +27,7 @@ class AdminDecision:
 
 def _build_headers() -> dict:
     headers = {"Content-Type": "application/json"}
-    token = os.getenv("ADMIN_API_TOKEN")
+    token = os.getenv("ADMIN_UI_TOKEN") or os.getenv("ADMIN_API_TOKEN")
     if token:
         headers["x-api-token"] = token
     return headers

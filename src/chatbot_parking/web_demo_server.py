@@ -256,12 +256,18 @@ def _invoke_durable_chat(message: str, thread_id: str) -> dict:
     if not status_url:
         raise RuntimeError("Durable starter response did not include statusQueryGetUri")
 
+    # Durable's statusQueryGetUri already includes an auth `code` query param. Sending the
+    # function key as an `x-functions-key` header can cause 403s on the runtime webhook.
+    status_headers: dict[str, str] = {}
+    if "code=" not in str(status_url):
+        status_headers = _build_admin_headers()
+
     timeout_seconds = float(os.getenv("DURABLE_POLL_TIMEOUT", "20"))
     poll_interval = float(os.getenv("DURABLE_POLL_INTERVAL", "1.0"))
     deadline = time.time() + timeout_seconds
 
     while time.time() < deadline:
-        status = _get_json(status_url, headers=_build_admin_headers())
+        status = _get_json(status_url, headers=status_headers)
         runtime_status = status.get("runtimeStatus")
 
         if runtime_status == "Completed":
@@ -364,7 +370,7 @@ def _run_chat_turn(thread_id: str, message: str) -> dict[str, Any]:
 
 
 def _require_admin_token(x_api_token: str | None = Header(default=None)) -> None:
-    expected = os.getenv("ADMIN_UI_TOKEN")
+    expected = os.getenv("ADMIN_UI_TOKEN") or os.getenv("ADMIN_API_TOKEN")
     if expected and x_api_token != expected:
         raise HTTPException(status_code=401, detail="Invalid admin token")
 
@@ -564,7 +570,11 @@ def chat_ui():
     ui_path = UI_DIR / "chat_ui.html"
     if not ui_path.exists():
         raise HTTPException(status_code=404, detail="UI not found")
-    return FileResponse(ui_path, media_type="text/html")
+    return FileResponse(
+        ui_path,
+        media_type="text/html",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.post("/admin/request")
@@ -607,7 +617,11 @@ def admin_ui():
     ui_path = UI_DIR / "admin_ui.html"
     if not ui_path.exists():
         raise HTTPException(status_code=404, detail="UI not found")
-    return FileResponse(ui_path, media_type="text/html")
+    return FileResponse(
+        ui_path,
+        media_type="text/html",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.post("/channels/generic/message")

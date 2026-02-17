@@ -12,8 +12,9 @@ import mcp.types as types
 
 # Initialize the MCP server
 server = Server("parking-reservations")
-DEFAULT_DATA_PATH = Path(__file__).resolve().parents[3] / "data" / "reservations.txt"
+REPO_DATA_PATH = Path(__file__).resolve().parents[3] / "data" / "reservations.txt"
 TMP_DATA_PATH = Path("/tmp/reservations.txt")
+DEFAULT_DATA_PATH = TMP_DATA_PATH
 
 
 def _resolve_data_path() -> Path:
@@ -21,8 +22,8 @@ def _resolve_data_path() -> Path:
     if env:
         return Path(env)
 
-    # Prefer repo-local file when writable; fall back to /tmp in locked-down containers.
-    for candidate in (DEFAULT_DATA_PATH, TMP_DATA_PATH):
+    # Default to /tmp to avoid mutating checked-in sample files; fall back to repo-local when needed.
+    for candidate in (DEFAULT_DATA_PATH, REPO_DATA_PATH):
         try:
             candidate.parent.mkdir(parents=True, exist_ok=True)
             if os.access(candidate.parent, os.W_OK):
