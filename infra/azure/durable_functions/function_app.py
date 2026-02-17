@@ -79,11 +79,10 @@ def run_chat_turn_activity(payload: dict[str, Any]) -> dict[str, Any]:
     persistence.upsert_thread(thread_id, next_state)
 
     response = {
-        "response": result.get("response", ""),
+        **result,
         "thread_id": thread_id,
-        "mode": result.get("mode", "info"),
-        "status": result.get("status", "collecting"),
     }
-    if result.get("request_id") is not None:
-        response["request_id"] = result["request_id"]
+    response.setdefault("response", "")
+    response.setdefault("mode", "info")
+    response.setdefault("status", "collecting")
     return response

@@ -35,8 +35,13 @@ def test_new_booking_clears_stale_request_id():
     graph.invoke({"message": "Alex"}, config={"configurable": {"thread_id": "t1"}})
     graph.invoke({"message": "Morgan"}, config={"configurable": {"thread_id": "t1"}})
     graph.invoke({"message": "XY-1234"}, config={"configurable": {"thread_id": "t1"}})
-    pending = graph.invoke(
+    review = graph.invoke(
         {"message": "2026-02-20 09:00 to 2026-02-20 18:00"},
+        config={"configurable": {"thread_id": "t1"}},
+    )
+    assert review.get("status") == "review"
+    pending = graph.invoke(
+        {"message": "confirm"},
         config={"configurable": {"thread_id": "t1"}},
     )
     assert pending.get("request_id")

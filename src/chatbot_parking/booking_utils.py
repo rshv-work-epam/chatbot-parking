@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, time, timedelta
 import re
 from typing import Any
 
@@ -40,6 +40,76 @@ def _parse_period_or_none(value: str) -> tuple[datetime, datetime] | None:
     start = datetime.strptime(match.group(1), "%Y-%m-%d %H:%M")
     end = datetime.strptime(match.group(2), "%Y-%m-%d %H:%M")
     return (start, end)
+
+
+def parse_reservation_period(value: str) -> tuple[datetime, datetime] | None:
+    return _parse_period_or_none(value)
+
+
+def parse_working_hours_window(working_hours: str) -> tuple[time, time] | None:
+    match = re.search(r"(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})", working_hours)
+    if not match:
+        return None
+    start_hour = datetime.strptime(match.group(1), "%H:%M").time()
+    end_hour = datetime.strptime(match.group(2), "%H:%M").time()
+    return (start_hour, end_hour)
+
+
+def is_period_within_working_hours(period: str, working_hours: str) -> bool | None:
+    parsed_period = parse_reservation_period(period)
+    hours_window = parse_working_hours_window(working_hours)
+    if not parsed_period or not hours_window:
+        return None
+    start, end = parsed_period
+    open_at, close_at = hours_window
+    return start.time() >= open_at and end.time() <= close_at
+
+
+def suggest_alternative_periods(period: str, working_hours: str) -> list[str]:
+    parsed = parse_reservation_period(period)
+    hours_window = parse_working_hours_window(working_hours)
+    if not parsed or not hours_window:
+        return []
+
+    start, end = parsed
+    open_at, close_at = hours_window
+    duration = end - start
+    if duration.total_seconds() <= 0:
+        duration = timedelta(hours=1)
+
+    same_day_open = start.replace(hour=open_at.hour, minute=open_at.minute, second=0, microsecond=0)
+    same_day_close = start.replace(hour=close_at.hour, minute=close_at.minute, second=0, microsecond=0)
+
+    suggestions: list[tuple[datetime, datetime]] = []
+
+    proposed_start = max(start, same_day_open)
+    proposed_end = proposed_start + duration
+    if proposed_end <= same_day_close:
+        suggestions.append((proposed_start, proposed_end))
+
+    next_day_start = (start + timedelta(days=1)).replace(
+        hour=open_at.hour,
+        minute=open_at.minute,
+        second=0,
+        microsecond=0,
+    )
+    next_day_end = next_day_start + duration
+    next_day_close = next_day_start.replace(hour=close_at.hour, minute=close_at.minute)
+    if next_day_end > next_day_close:
+        next_day_end = next_day_close
+    if next_day_end > next_day_start:
+        suggestions.append((next_day_start, next_day_end))
+
+    rendered: list[str] = []
+    for candidate_start, candidate_end in suggestions:
+        normalized = (
+            f"{candidate_start.strftime('%Y-%m-%d %H:%M')} "
+            f"to {candidate_end.strftime('%Y-%m-%d %H:%M')}"
+        )
+        if normalized not in rendered:
+            rendered.append(normalized)
+
+    return rendered[:2]
 
 
 def validate_field(field: str, value: str) -> str | None:

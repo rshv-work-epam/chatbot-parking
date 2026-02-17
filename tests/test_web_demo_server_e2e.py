@@ -20,11 +20,16 @@ def test_e2e_booking_admin_approve_records_reservation(monkeypatch):
     client.post("/chat/message", json={"thread_id": thread_id, "message": "Roman"})
     client.post("/chat/message", json={"thread_id": thread_id, "message": "Shevchuk"})
     client.post("/chat/message", json={"thread_id": thread_id, "message": "AA-1234-BB"})
-    pending = client.post(
+    review = client.post(
         "/chat/message",
         json={"thread_id": thread_id, "message": "2026-02-20 09:00 to 2026-02-20 18:00"},
     )
+    assert review.status_code == 200
+    assert review.json()["status"] == "review"
+
+    pending = client.post("/chat/message", json={"thread_id": thread_id, "message": "confirm"})
     assert pending.status_code == 200
+    assert pending.json()["status"] == "pending"
     request_id = pending.json()["request_id"]
 
     listed = client.get("/admin/requests", headers={"x-api-token": "secret"})

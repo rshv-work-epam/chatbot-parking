@@ -169,16 +169,22 @@ def chat_message(payload: ChatMessageIn):
     )
     persistence.upsert_thread(thread_id, next_state)
 
-    response: dict[str, str] = {
-        "response": result.get("response", ""),
+    response: dict[str, object] = {
+        **result,
         "thread_id": thread_id,
-        "mode": result.get("mode", "info"),
     }
-    if result.get("request_id") is not None:
-        response["request_id"] = result["request_id"]
-    if result.get("status") is not None:
-        response["status"] = result["status"]
+    response.setdefault("response", "")
+    response.setdefault("mode", "info")
+    response.setdefault("status", "collecting")
     return response
+
+
+@app.get("/chat/status/{thread_id}")
+def chat_status(thread_id: str):
+    state = get_persistence().get_thread(thread_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    return state
 
 
 @app.get("/chat/ui")

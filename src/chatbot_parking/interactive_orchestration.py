@@ -20,8 +20,14 @@ class InteractiveState(TypedDict, total=False):
     pending_field: str | None
     collected: dict[str, str]
     request_id: str | None
-    status: Literal["collecting", "pending", "approved", "declined"]
+    status: Literal["collecting", "review", "pending", "approved", "declined", "cancelled"]
     recorded: bool
+    action_required: str
+    progress: dict
+    review_summary: str
+    alternatives: list[str]
+    status_detail: str
+    decided_at: str | None
 
 
 def _run_turn(state: InteractiveState) -> InteractiveState:
@@ -38,6 +44,12 @@ def _run_turn(state: InteractiveState) -> InteractiveState:
         "mode": result.get("mode", "info"),
         "status": result.get("status", "collecting"),
         "request_id": result.get("request_id"),
+        "action_required": result.get("action_required"),
+        "progress": result.get("progress"),
+        "review_summary": result.get("review_summary"),
+        "alternatives": result.get("alternatives"),
+        "status_detail": result.get("status_detail"),
+        "decided_at": result.get("decided_at"),
     }
 
 
