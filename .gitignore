@@ -8,3 +8,7 @@ data/
 !data/
 !data/static_docs.json
 !data/ingest.py
+
+# Generated during GitHub Actions durable packaging step (rsync from repo root).
+infra/azure/durable_functions/src/
+infra/azure/durable_functions/data/
