@@ -15,7 +15,12 @@ from azure.identity import DefaultAzureCredential
 import requests
 
 # Allow importing project source when this function app is deployed from repository content.
-SRC_PATH = Path(__file__).resolve().parents[3] / "src"
+# In Azure Functions, `function_app.py` lives at the app root (wwwroot), so `./src` is the
+# expected location once the deployment package copies the repository `src/` directory.
+SRC_PATH = Path(__file__).resolve().parent / "src"
+if not SRC_PATH.exists():
+    # Fallback for local execution from the repository checkout layout.
+    SRC_PATH = Path(__file__).resolve().parents[3] / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.append(str(SRC_PATH))
 
