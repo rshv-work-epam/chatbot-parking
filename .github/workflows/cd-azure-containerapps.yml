@@ -109,8 +109,9 @@ jobs:
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           AZURE_FUNCTIONAPP_NAME: ${{ vars.AZURE_FUNCTIONAPP_NAME }}
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
         run: |
-          if [ -z "$AZURE_CLIENT_ID" ] || [ -z "$AZURE_TENANT_ID" ] || [ -z "$AZURE_SUBSCRIPTION_ID" ] || [ -z "$AZURE_FUNCTIONAPP_NAME" ]; then
+          if [ -z "$AZURE_CLIENT_ID" ] || [ -z "$AZURE_TENANT_ID" ] || [ -z "$AZURE_SUBSCRIPTION_ID" ] || [ -z "$AZURE_FUNCTIONAPP_NAME" ] || [ -z "$AZURE_RESOURCE_GROUP" ]; then
             echo "Durable deployment config incomplete. Skipping function deployment."
             echo "has-durable=false" >> $GITHUB_OUTPUT
             exit 0
@@ -126,14 +127,28 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           audience: api://AzureADTokenExchange
 
-      - name: Prepare function package
+      - name: Validate Durable Function App exists
         if: steps.check-durable.outputs.has-durable == 'true'
+        id: durable-exists
+        env:
+          AZURE_FUNCTIONAPP_NAME: ${{ vars.AZURE_FUNCTIONAPP_NAME }}
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+        run: |
+          if az functionapp show --name "$AZURE_FUNCTIONAPP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "::warning::Function App '$AZURE_FUNCTIONAPP_NAME' was not found. Skipping durable deployment."
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Prepare function package
+        if: steps.check-durable.outputs.has-durable == 'true' && steps.durable-exists.outputs.exists == 'true'
         run: |
           rsync -a src/ infra/azure/durable_functions/src/
           rsync -a data/ infra/azure/durable_functions/data/
 
       - name: Deploy Durable Function App
-        if: steps.check-durable.outputs.has-durable == 'true'
+        if: steps.check-durable.outputs.has-durable == 'true' && steps.durable-exists.outputs.exists == 'true'
         uses: Azure/functions-action@v1
         with:
           app-name: ${{ vars.AZURE_FUNCTIONAPP_NAME }}
