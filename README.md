@@ -178,6 +178,50 @@ Cloud architecture:
 - Cosmos DB stores thread state, admin approvals, and reservation records.
 See the runbook for Azure OIDC configuration, required GitHub secrets/variables, and deployment steps.
 
+## Security (OWASP LLM Top 10)
+
+This project intentionally treats everything around the model as untrusted input (user messages, retrieved context, tool outputs)
+and applies defense-in-depth guardrails.
+
+Implemented highlights:
+
+- Prompt-injection + system-prompt-leak detection (heuristics + strict prompting)
+- PII/secret filtering and redaction across ingest → retrieval → output
+- Least-privilege tool use: the MCP “record reservation” tool is triggered only after explicit user confirmation + human approval
+- Bounded execution: message/context/output limits, durable polling timeouts, and request rate limiting in the UI/API service
+- Safer web UI output handling: no `innerHTML` for untrusted values
+
+Details and configuration knobs: `docs/guardrails.md`.
+
+## Azure Well-Architected / AI Landing Zones (Portfolio Alignment)
+
+This repo is not a full enterprise landing zone, but the Azure deployment follows several patterns from the
+[Azure AI Landing Zones](https://github.com/Azure/AI-Landing-Zones) reference:
+
+- Separate compute roles (UI/API service vs Durable orchestration)
+- Centralized logs/telemetry (Log Analytics + Application Insights)
+- GitHub OIDC for CI/CD (no long-lived Azure credentials in GitHub)
+- Secrets handled as Azure Container Apps secrets (no plaintext tokens in image layers)
+- Budget alert + “kill switch” hook (best-effort cost guardrail)
+
+Recommended production follow-ups (not fully implemented here):
+
+- Front Door + WAF in front of the UI/API (bot protection, global edge, DDoS posture)
+- Key Vault + Managed Identity for secrets and Cosmos access (`COSMOS_USE_MANAGED_IDENTITY=true`)
+- Private networking (VNet integration + Private Endpoints) for Cosmos/Storage where required
+- API Management for auth, throttling, and request validation at the edge
+- Dependency scanning and image vulnerability scanning in CI/CD
+
+## Portfolio Takeaways (Ideas To Reuse)
+
+- **RAG done with “security first” defaults**: chunking, metadata tagging, and retrieval filtering for private/injection-like content.
+- **Human-in-the-loop as a hard gate**: approval is a workflow state, not a UI feature.
+- **MCP as a tool boundary**: reservation recording is a real MCP stdio tool call, not a direct Python import.
+- **Pluggable persistence**: Cosmos-backed state in cloud, in-memory fallback for local testing.
+- **Hybrid cloud architecture**: Durable Functions for orchestration + Container Apps for user-facing UI/API.
+- **Testing pyramid for AI workflows**: unit tests, MCP integration tests, and end-to-end booking+approval tests.
+- **Operational guardrails**: smoke tests after deploy, cost budget alert, and conservative defaults for timeouts/limits.
+
 ## Evaluation
 
 ```bash

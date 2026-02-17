@@ -19,6 +19,7 @@ class PersistenceSettings:
     backend: str
     cosmos_endpoint: str | None
     cosmos_key: str | None
+    cosmos_use_managed_identity: bool
     cosmos_database: str
     cosmos_threads_container: str
     cosmos_approvals_container: str
@@ -141,10 +142,24 @@ class CosmosPersistence(Persistence):
     def __init__(self, settings: PersistenceSettings) -> None:
         from azure.cosmos import CosmosClient
 
-        if not settings.cosmos_endpoint or not settings.cosmos_key:
-            raise ValueError("COSMOS_DB_ENDPOINT and COSMOS_DB_KEY are required for Cosmos backend")
+        if not settings.cosmos_endpoint:
+            raise ValueError("COSMOS_DB_ENDPOINT is required for Cosmos backend")
 
-        client = CosmosClient(settings.cosmos_endpoint, credential=settings.cosmos_key)
+        credential = None
+        if settings.cosmos_key:
+            credential = settings.cosmos_key
+        elif settings.cosmos_use_managed_identity:
+            from azure.identity import DefaultAzureCredential
+
+            # Prefer non-interactive credentials (managed identity in Azure, or env-based locally).
+            credential = DefaultAzureCredential(exclude_interactive_browser_credential=True)
+
+        if credential is None:
+            raise ValueError(
+                "Cosmos backend requires COSMOS_DB_KEY or COSMOS_USE_MANAGED_IDENTITY=true"
+            )
+
+        client = CosmosClient(settings.cosmos_endpoint, credential=credential)
         database = client.get_database_client(settings.cosmos_database)
         self._threads = database.get_container_client(settings.cosmos_threads_container)
         self._approvals = database.get_container_client(settings.cosmos_approvals_container)
@@ -264,6 +279,8 @@ def get_persistence_settings() -> PersistenceSettings:
         backend=os.getenv("PERSISTENCE_BACKEND", "auto").lower(),
         cosmos_endpoint=os.getenv("COSMOS_DB_ENDPOINT"),
         cosmos_key=os.getenv("COSMOS_DB_KEY"),
+        cosmos_use_managed_identity=os.getenv("COSMOS_USE_MANAGED_IDENTITY", "false").strip().lower()
+        in {"1", "true", "yes", "on"},
         cosmos_database=os.getenv("COSMOS_DB_DATABASE", "chatbotParking"),
         cosmos_threads_container=os.getenv("COSMOS_DB_CONTAINER_THREADS", "threads"),
         cosmos_approvals_container=os.getenv("COSMOS_DB_CONTAINER_APPROVALS", "approvals"),
@@ -283,7 +300,7 @@ def get_persistence() -> Persistence:
     use_cosmos = settings.backend == "cosmos" or (
         settings.backend == "auto"
         and settings.cosmos_endpoint
-        and settings.cosmos_key
+        and (settings.cosmos_key or settings.cosmos_use_managed_identity)
     )
 
     if use_cosmos:

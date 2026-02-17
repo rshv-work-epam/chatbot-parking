@@ -95,6 +95,7 @@ UI container expects:
 - `DURABLE_FUNCTION_KEY`
 - `COSMOS_DB_ENDPOINT`
 - `COSMOS_DB_KEY`
+- `COSMOS_USE_MANAGED_IDENTITY=true` (optional alternative to `COSMOS_DB_KEY`, requires Cosmos RBAC)
 - `COSMOS_DB_DATABASE`
 - `COSMOS_DB_CONTAINER_THREADS`
 - `COSMOS_DB_CONTAINER_APPROVALS`
@@ -106,6 +107,12 @@ Durable Function expects:
 
 - Cosmos connection variables listed above.
 - `PERSISTENCE_BACKEND=cosmos`
+
+Optional HTTP hardening knobs (UI/API service):
+
+- `RATE_LIMIT_ENABLED=true|false` (defaults to enabled in `APP_ENV=prod`)
+- `RATE_LIMIT_MAX_REQUESTS` / `RATE_LIMIT_WINDOW_SECONDS`
+- `CSP_ENABLED=true|false`
 
 ## 6) Post-deploy validation
 

@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import re
 
 from mcp.server import Server
 from mcp.types import Tool, TextContent
@@ -34,6 +35,20 @@ def _resolve_data_path() -> Path:
     return TMP_DATA_PATH
 
 
+_CONTROL_CHARS_RE = re.compile(r"[\r\n\t]+")
+
+
+def _sanitize_field(value: str, *, max_len: int = 200) -> str:
+    """Keep file records one-line and delimiter-safe."""
+    text = str(value or "")
+    text = _CONTROL_CHARS_RE.sub(" ", text)
+    text = text.replace("|", "/")
+    text = re.sub(r"\s{2,}", " ", text).strip()
+    if max_len > 0 and len(text) > max_len:
+        text = text[:max_len].rstrip()
+    return text
+
+
 def append_reservation_record(
     name: str,
     car_number: str,
@@ -41,7 +56,11 @@ def append_reservation_record(
     approval_time: str,
 ) -> None:
     """Write reservation record to file."""
-    line = f"{name} | {car_number} | {reservation_period} | {approval_time}\n"
+    safe_name = _sanitize_field(name)
+    safe_car = _sanitize_field(car_number, max_len=32)
+    safe_period = _sanitize_field(reservation_period, max_len=128)
+    safe_time = _sanitize_field(approval_time, max_len=64)
+    line = f"{safe_name} | {safe_car} | {safe_period} | {safe_time}\n"
     data_path = _resolve_data_path()
     with data_path.open("a", encoding="utf-8") as handle:
         handle.write(line)

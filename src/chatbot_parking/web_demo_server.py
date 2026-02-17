@@ -22,6 +22,7 @@ try:
 except Exception:  # pragma: no cover - optional runtime dependency
     OAuth = None
 
+from chatbot_parking.http_security import apply_security_headers, enforce_rate_limit
 from chatbot_parking.admin_store import (
     create_admin_request,
     get_admin_decision,
@@ -36,6 +37,12 @@ from chatbot_parking.persistence import get_persistence
 
 app = FastAPI(title="Parking Chat + Admin UI")
 chatbot = ParkingChatbot()
+
+@app.middleware("http")
+async def _security_headers_middleware(req: Request, call_next):
+    resp = await call_next(req)
+    apply_security_headers(req, resp)
+    return resp
 
 def _mcp_recording_enabled() -> bool:
     return os.getenv("MCP_RECORD_RESERVATIONS", "true").strip().lower() in {"1", "true", "yes", "on"}
@@ -516,7 +523,8 @@ async def auth_callback(provider: str, req: Request):
 
 
 @app.post("/chat/ask")
-def ask_chatbot(payload: ChatPromptIn):
+def ask_chatbot(payload: ChatPromptIn, req: Request):
+    enforce_rate_limit(req, scope="chat")
     message = payload.message.strip()
     if not message:
         raise HTTPException(status_code=400, detail="Message cannot be empty")
@@ -543,6 +551,7 @@ def ask_chatbot(payload: ChatPromptIn):
 
 @app.post("/chat/message")
 def chat_message(payload: ChatMessageIn, req: Request):
+    enforce_rate_limit(req, scope="chat")
     message = payload.message.strip()
     if not message:
         raise HTTPException(status_code=400, detail="Message cannot be empty")
@@ -625,7 +634,8 @@ def admin_ui():
 
 
 @app.post("/channels/generic/message")
-def channel_generic_message(payload: GenericChannelMessageIn):
+def channel_generic_message(payload: GenericChannelMessageIn, req: Request):
+    enforce_rate_limit(req, scope="channel")
     message = payload.message.strip()
     if not message:
         raise HTTPException(status_code=400, detail="Message cannot be empty")
@@ -644,7 +654,8 @@ def channel_generic_message(payload: GenericChannelMessageIn):
 
 
 @app.post("/channels/openai/tool")
-def openai_tool_message(payload: OpenAIToolMessageIn):
+def openai_tool_message(payload: OpenAIToolMessageIn, req: Request):
+    enforce_rate_limit(req, scope="channel")
     message = payload.input.strip()
     if not message:
         raise HTTPException(status_code=400, detail="Input cannot be empty")
@@ -661,7 +672,8 @@ def openai_tool_message(payload: OpenAIToolMessageIn):
 
 
 @app.post("/channels/telegram/webhook/{token}")
-def telegram_webhook(token: str, payload: dict[str, Any]):
+def telegram_webhook(token: str, payload: dict[str, Any], req: Request):
+    enforce_rate_limit(req, scope="channel")
     configured_token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not configured_token:
         raise HTTPException(status_code=503, detail="Telegram bot token is not configured")
@@ -694,6 +706,7 @@ def telegram_webhook(token: str, payload: dict[str, Any]):
 
 @app.post("/channels/slack/events")
 async def slack_events(req: Request):
+    enforce_rate_limit(req, scope="channel")
     raw_body = await req.body()
     if not _validate_slack_signature(raw_body, req):
         raise HTTPException(status_code=401, detail="Invalid Slack signature")

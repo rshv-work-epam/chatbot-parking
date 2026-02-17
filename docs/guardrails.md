@@ -19,21 +19,25 @@ See `chatbot_parking.guardrails` for the exact patterns.
 1. **Ingestion redaction**: documents are redacted before ingestion and tagged as `public`/`private`.
 2. **Retrieval filtering**: chunks marked `private` are filtered out of results.
 3. **Output filter**: responses are blocked if they contain sensitive patterns.
+4. **HTTP safety**: rate limiting + security headers are enforced in the UI/API service.
+5. **Tool safety**: reservation tool inputs are sanitized before writing to file.
 
 ## OWASP LLM Top 10 (2025) Alignment (High-Level)
 
 This repo is a small demo, but it implements defense-in-depth that maps to the OWASP LLM Top 10 (2025):
 
-- **LLM01 Prompt Injection**: prompt templates treat retrieved context as untrusted; prompt-injection patterns in retrieved chunks are filtered; obvious injection attempts are refused.
-- **LLM02 Sensitive Information Disclosure**: ingestion redaction + retrieval filtering + output blocking for sensitive patterns (PII + common secrets).
-- **LLM03 Supply Chain**: use dependency hygiene (pin/scan) in deployment pipelines (recommended; not enforced by default in this repo).
-- **LLM04 Data and Model Poisoning**: static KB ingestion is redacted; retrieved chunks that look like prompt-injection are excluded (helps reduce poisoned-context influence).
-- **LLM05 Improper Output Handling**: UIs render untrusted values using safe DOM APIs (avoid `innerHTML` with untrusted data); backend never executes model output.
-- **LLM06 Excessive Agency**: side effects (booking record) require explicit user confirmation + human admin approval; LLM output is not used as authority for actions.
-- **LLM07 System Prompt Leakage**: system prompt contains no secrets; requests for internal prompts/instructions are refused.
-- **LLM08 Vector and Embedding Weaknesses**: retrieval filters out sensitive and injection-like chunks; optional source IDs can be attached to answers for traceability.
-- **LLM09 Misinformation**: prompting instructs the model to answer only from provided context/dynamic info and say “I don’t know” otherwise; optional sources reduce overreliance.
-- **LLM10 Unbounded Consumption**: message length and context/output length limits can be enforced via env vars.
+- **LLM01 Prompt Injection**: prompt templates treat retrieved context as untrusted; prompt-injection patterns in retrieved chunks are filtered; obvious injection attempts are refused. (`src/chatbot_parking/guardrails.py`, `src/chatbot_parking/rag.py`)
+- **LLM02 Sensitive Information Disclosure**: ingestion redaction + retrieval filtering + output blocking for sensitive patterns (PII + common secrets). (`src/chatbot_parking/guardrails.py`, `src/chatbot_parking/rag.py`)
+- **LLM03 Supply Chain**: deployment uses GitHub OIDC (no long-lived Azure credentials) and secrets are stored in Azure Container Apps secrets; add SCA/vuln scanning in CI for real prod. (`.github/workflows/ci.yml`, `.github/workflows/cd-azure-containerapps.yml`)
+- **LLM04 Data and Model Poisoning**: ingestion redacts PII and retrieval filters injection-like chunks to reduce poisoned-context influence. (`src/chatbot_parking/rag.py`)
+- **LLM05 Improper Output Handling**: UIs render untrusted values using safe DOM APIs (no `innerHTML`); backend never executes model output. (`scripts/chat_ui.html`, `scripts/admin_ui.html`)
+- **LLM06 Excessive Agency**: side effects (reservation record) require explicit user confirmation + human admin approval; tool calls are initiated by application code, not model output. (`src/chatbot_parking/interactive_flow.py`)
+- **LLM07 System Prompt Leakage**: system prompt contains no secrets; requests for internal prompts/instructions are refused. (`src/chatbot_parking/guardrails.py`, `src/chatbot_parking/rag.py`)
+- **LLM08 Vector and Embedding Weaknesses**: chunking + metadata tagging; retrieval filters out private and injection-like chunks; optional sources for traceability. (`src/chatbot_parking/rag.py`)
+- **LLM09 Misinformation**: prompting instructs the model to answer only from provided context/dynamic info and say “I don’t know” otherwise; optional sources reduce overreliance. (`src/chatbot_parking/rag.py`)
+- **LLM10 Unbounded Consumption**: message length/context/output length limits + request rate limiting. (`src/chatbot_parking/web_demo_server.py`, `src/chatbot_parking/http_security.py`)
+
+Note: OWASP also published an earlier “Top 10 for LLM Applications” list (2023/2024) with different numbering. The mitigations above still apply; only category labels changed.
 
 ## Configuration Knobs
 
@@ -43,6 +47,9 @@ This repo is a small demo, but it implements defense-in-depth that maps to the O
 - `MAX_RESPONSE_CHARS` (default `4000`): truncate assistant responses.
 - `RAG_INCLUDE_SOURCES=true`: append `Sources: ...` using retrieved document IDs.
 - `GUARDRAILS_USE_ML=true|false`: enable/disable optional NER-based sensitive-data detection.
+- `RATE_LIMIT_ENABLED=true|false`: enable request rate limiting (defaults to enabled in `APP_ENV=prod`).
+- `RATE_LIMIT_MAX_REQUESTS` / `RATE_LIMIT_WINDOW_SECONDS`: tune rate limiting (defaults: 60 requests per 60 seconds).
+- `COSMOS_USE_MANAGED_IDENTITY=true`: use Azure Managed Identity instead of Cosmos keys (requires Cosmos RBAC setup).
 
 ## Example Block
 
