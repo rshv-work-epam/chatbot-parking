@@ -1,6 +1,7 @@
 """Core chatbot logic for interacting with users."""
 
 from dataclasses import dataclass, field
+import os
 from typing import Optional
 
 from chatbot_parking.booking_utils import (
@@ -14,7 +15,12 @@ from chatbot_parking.booking_utils import (
     validate_field,
 )
 from chatbot_parking.dynamic_data import get_dynamic_info
-from chatbot_parking.guardrails import filter_sensitive, safe_output
+from chatbot_parking.guardrails import (
+    contains_prompt_injection,
+    is_system_prompt_request,
+    filter_sensitive,
+    safe_output,
+)
 from chatbot_parking.rag import build_vector_store, classify_intent, generate_answer, retrieve
 
 
@@ -54,16 +60,40 @@ class ParkingChatbot:
         return "info"
 
     def answer_question(self, question: str) -> str:
+        max_chars = int(os.getenv("MAX_MESSAGE_CHARS", "2000"))
+        if max_chars > 0 and len(question) > max_chars:
+            return "Message is too long. Please shorten it and try again."
+
+        if is_system_prompt_request(question):
+            return "Sorry, I can't share internal instructions."
+
+        if contains_prompt_injection(question):
+            return "Sorry, I can't help with that request."
+
         dynamic = get_dynamic_info()
         retrieval = retrieve(question, self.vector_store)
         snippets = [doc.page_content for doc in retrieval.documents]
         safe_snippets = filter_sensitive(snippets)
-        context = "\n".join(safe_snippets) if safe_snippets else "No relevant context found."
+        context = "\n".join(safe_snippets) if safe_snippets else ""
+        max_context = int(os.getenv("MAX_RAG_CONTEXT_CHARS", "6000"))
+        if max_context > 0 and len(context) > max_context:
+            context = context[:max_context].rstrip()
         dynamic_info = (
             f"Current availability: {dynamic.available_spaces} spaces. "
             f"Hours: {dynamic.working_hours}. Pricing: {dynamic.pricing}."
         )
         response = generate_answer(question, context, dynamic_info)
+        if os.getenv("RAG_INCLUDE_SOURCES", "false").strip().lower() == "true":
+            source_ids: list[str] = []
+            for doc in retrieval.documents:
+                source_id = doc.metadata.get("source_id") or doc.metadata.get("id")
+                if source_id:
+                    rendered = str(source_id)
+                    if rendered not in source_ids:
+                        source_ids.append(rendered)
+            if source_ids:
+                response = f"{response}\n\nSources: {', '.join(source_ids)}"
+
         return safe_output(response)
 
     def start_reservation(self) -> ConversationState:

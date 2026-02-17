@@ -37,6 +37,71 @@ from chatbot_parking.persistence import get_persistence
 app = FastAPI(title="Parking Chat + Admin UI")
 chatbot = ParkingChatbot()
 
+def _mcp_recording_enabled() -> bool:
+    return os.getenv("MCP_RECORD_RESERVATIONS", "true").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _record_reservation_via_mcp(
+    *,
+    name: str,
+    car_number: str,
+    reservation_period: str,
+    approval_time: str | None = None,
+) -> str:
+    # Import lazily so environments that only use Durable Functions don't need MCP deps.
+    from chatbot_parking.mcp_client import record_reservation
+
+    return record_reservation(
+        name=name,
+        car_number=car_number,
+        reservation_period=reservation_period,
+        approval_time=approval_time,
+    )
+
+
+def _maybe_record_mcp_after_durable(thread_id: str, result: dict[str, Any]) -> None:
+    if not _mcp_recording_enabled():
+        return
+    if result.get("mode") != "booking" or result.get("status") != "approved":
+        return
+    if result.get("mcp_recorded") is True:
+        return
+
+    collected = result.get("collected") if isinstance(result.get("collected"), dict) else {}
+    name = f"{str(collected.get('name', '')).strip()} {str(collected.get('surname', '')).strip()}".strip()
+    car_number = str(collected.get("car_number", "")).strip()
+    reservation_period = str(collected.get("reservation_period", "")).strip()
+    approval_time = str(result.get("decided_at") or "").strip() or None
+
+    if not (name and car_number and reservation_period):
+        return
+
+    try:
+        approval_time = _record_reservation_via_mcp(
+            name=name,
+            car_number=car_number,
+            reservation_period=reservation_period,
+            approval_time=approval_time,
+        )
+    except Exception as exc:
+        detail = str(exc).strip() or "unknown error"
+        result["status_detail"] = (
+            f"{(result.get('status_detail') or '').strip()} "
+            f"(MCP file record failed: {detail})"
+        ).strip()
+        return
+
+    # Persist idempotency flag so a subsequent status check doesn't re-write the file.
+    persistence = get_persistence()
+    state = persistence.get_thread(thread_id) or {}
+    state["mcp_recorded"] = True
+    if approval_time:
+        state["decided_at"] = state.get("decided_at") or approval_time
+    persistence.upsert_thread(thread_id, state)
+    result["mcp_recorded"] = True
+    if approval_time and not result.get("decided_at"):
+        result["decided_at"] = approval_time
+
 
 def _resolve_ui_dir() -> Path:
     env_dir = os.getenv("UI_DIR")
@@ -123,6 +188,31 @@ def _init_oauth() -> tuple[Any, list[str]]:
 
 
 oauth_client, enabled_oauth_providers = _init_oauth()
+
+def _max_message_chars() -> int:
+    return int(os.getenv("MAX_MESSAGE_CHARS", "2000"))
+
+
+def _max_thread_id_chars() -> int:
+    return int(os.getenv("MAX_THREAD_ID_CHARS", "128"))
+
+
+def _enforce_text_limits(value: str, *, field: str) -> None:
+    max_chars = _max_message_chars()
+    if max_chars > 0 and len(value) > max_chars:
+        raise HTTPException(
+            status_code=413,
+            detail=f"{field} is too long (max {max_chars} characters)",
+        )
+
+
+def _enforce_thread_id_limits(thread_id: str) -> None:
+    max_chars = _max_thread_id_chars()
+    if max_chars > 0 and len(thread_id) > max_chars:
+        raise HTTPException(
+            status_code=413,
+            detail=f"thread_id is too long (max {max_chars} characters)",
+        )
 
 
 def _build_admin_headers() -> dict[str, str]:
@@ -242,15 +332,19 @@ def _run_chat_turn(thread_id: str, message: str) -> dict[str, Any]:
                 result.setdefault("mode", "info")
                 result.setdefault("status", "collecting")
                 result.setdefault("response", "")
+                if isinstance(result, dict):
+                    _maybe_record_mcp_after_durable(thread_id, result)
                 return result
             except Exception as exc:
                 durable_error = str(exc)
 
+    reservation_recorder = _record_reservation_via_mcp if _mcp_recording_enabled() else None
     result, next_state = run_chat_turn(
         message=message,
         state=prior_state,
         persistence=persistence,
         answer_question=chatbot.answer_question,
+        record_reservation=reservation_recorder,
     )
     persistence.upsert_thread(thread_id, next_state)
 
@@ -420,6 +514,7 @@ def ask_chatbot(payload: ChatPromptIn):
     message = payload.message.strip()
     if not message:
         raise HTTPException(status_code=400, detail="Message cannot be empty")
+    _enforce_text_limits(message, field="message")
 
     if is_reservation_intent(message):
         return {
@@ -445,8 +540,10 @@ def chat_message(payload: ChatMessageIn, req: Request):
     message = payload.message.strip()
     if not message:
         raise HTTPException(status_code=400, detail="Message cannot be empty")
+    _enforce_text_limits(message, field="message")
 
     thread_id = _resolve_thread_id(req, payload.thread_id)
+    _enforce_thread_id_limits(thread_id)
 
     try:
         return _run_chat_turn(thread_id=thread_id, message=message)
@@ -518,8 +615,10 @@ def channel_generic_message(payload: GenericChannelMessageIn):
     message = payload.message.strip()
     if not message:
         raise HTTPException(status_code=400, detail="Message cannot be empty")
+    _enforce_text_limits(message, field="message")
 
     thread_id = payload.thread_id or f"{payload.channel}:{payload.user_id}"
+    _enforce_thread_id_limits(thread_id)
     result = _run_chat_turn(thread_id=thread_id, message=message)
     return {
         "channel": payload.channel,
@@ -535,8 +634,10 @@ def openai_tool_message(payload: OpenAIToolMessageIn):
     message = payload.input.strip()
     if not message:
         raise HTTPException(status_code=400, detail="Input cannot be empty")
+    _enforce_text_limits(message, field="input")
 
     thread_id = payload.thread_id or f"openai:{payload.user_id}"
+    _enforce_thread_id_limits(thread_id)
     result = _run_chat_turn(thread_id=thread_id, message=message)
     return {
         "output": result.get("response", ""),
@@ -560,8 +661,10 @@ def telegram_webhook(token: str, payload: dict[str, Any]):
 
     if not chat_id or not text:
         return {"ok": True}
+    _enforce_text_limits(text, field="message")
 
     thread_id = f"telegram:{chat_id}"
+    _enforce_thread_id_limits(thread_id)
     result = _run_chat_turn(thread_id=thread_id, message=text)
 
     telegram_url = f"https://api.telegram.org/bot{configured_token}/sendMessage"
@@ -595,8 +698,10 @@ async def slack_events(req: Request):
     channel_id = str(event.get("channel") or "")
     if not text or not user_id or not channel_id:
         return {"ok": True}
+    _enforce_text_limits(text, field="message")
 
     thread_id = f"slack:{channel_id}:{user_id}"
+    _enforce_thread_id_limits(thread_id)
     result = _run_chat_turn(thread_id=thread_id, message=text)
 
     slack_token = os.getenv("SLACK_BOT_TOKEN")
@@ -646,8 +751,10 @@ def whatsapp_webhook(payload: dict[str, Any]):
                 text = str((message.get("text") or {}).get("body") or "").strip()
                 if not from_number or not text:
                     continue
+                _enforce_text_limits(text, field="message")
 
                 thread_id = f"whatsapp:{from_number}"
+                _enforce_thread_id_limits(thread_id)
                 result = _run_chat_turn(thread_id=thread_id, message=text)
 
                 if access_token and phone_number_id:

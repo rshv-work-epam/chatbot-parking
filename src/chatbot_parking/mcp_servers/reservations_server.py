@@ -13,6 +13,24 @@ import mcp.types as types
 # Initialize the MCP server
 server = Server("parking-reservations")
 DEFAULT_DATA_PATH = Path(__file__).resolve().parents[3] / "data" / "reservations.txt"
+TMP_DATA_PATH = Path("/tmp/reservations.txt")
+
+
+def _resolve_data_path() -> Path:
+    env = os.getenv("RESERVATIONS_FILE_PATH")
+    if env:
+        return Path(env)
+
+    # Prefer repo-local file when writable; fall back to /tmp in locked-down containers.
+    for candidate in (DEFAULT_DATA_PATH, TMP_DATA_PATH):
+        try:
+            candidate.parent.mkdir(parents=True, exist_ok=True)
+            if os.access(candidate.parent, os.W_OK):
+                return candidate
+        except Exception:
+            continue
+
+    return TMP_DATA_PATH
 
 
 def append_reservation_record(
@@ -23,8 +41,7 @@ def append_reservation_record(
 ) -> None:
     """Write reservation record to file."""
     line = f"{name} | {car_number} | {reservation_period} | {approval_time}\n"
-    data_path = Path(os.getenv("RESERVATIONS_FILE_PATH", str(DEFAULT_DATA_PATH)))
-    data_path.parent.mkdir(parents=True, exist_ok=True)
+    data_path = _resolve_data_path()
     with data_path.open("a", encoding="utf-8") as handle:
         handle.write(line)
 

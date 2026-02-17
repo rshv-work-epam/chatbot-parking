@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import re
-from typing import Any
+from typing import Any, Callable
 
 from chatbot_parking.booking_utils import (
     BOOKING_FIELDS,
@@ -149,6 +149,8 @@ def _booking_response(
     review_summary: str | None = None,
     alternatives: list[str] | None = None,
     decided_at: str | None = None,
+    recorded: bool | None = None,
+    mcp_recorded: bool | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "response": response,
@@ -169,6 +171,10 @@ def _booking_response(
         payload["alternatives"] = alternatives
     if decided_at:
         payload["decided_at"] = decided_at
+    if recorded is not None:
+        payload["recorded"] = bool(recorded)
+    if mcp_recorded is not None:
+        payload["mcp_recorded"] = bool(mcp_recorded)
     return payload
 
 
@@ -181,6 +187,7 @@ def default_state() -> dict[str, Any]:
         "request_id": None,
         "status": "collecting",
         "recorded": False,
+        "mcp_recorded": False,
         "decided_at": None,
     }
 
@@ -197,6 +204,7 @@ def run_chat_turn(
     state: dict[str, Any] | None,
     persistence: Persistence,
     answer_question,
+    record_reservation: Callable[..., str] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     text = message.strip()
     if not text:
@@ -216,6 +224,7 @@ def run_chat_turn(
     status = current.get("status")
     request_id = current.get("request_id")
     recorded = bool(current.get("recorded", False))
+    mcp_recorded = bool(current.get("mcp_recorded", False))
 
     if booking_active and _is_cancel_command(text):
         next_state = _state_with(
@@ -227,6 +236,7 @@ def run_chat_turn(
             request_id=None,
             status="cancelled",
             recorded=False,
+            mcp_recorded=False,
             decided_at=None,
         )
         return (
@@ -248,6 +258,7 @@ def run_chat_turn(
             status="collecting",
             request_id=None,
             recorded=False,
+            mcp_recorded=False,
             decided_at=None,
         )
         return (
@@ -257,6 +268,8 @@ def run_chat_turn(
                 pending_field="name",
                 collected={},
                 action_required="input",
+                recorded=False,
+                mcp_recorded=False,
             ),
             next_state,
         )
@@ -275,6 +288,18 @@ def run_chat_turn(
                     approval_time=approval_time,
                     request_id=request_id,
                 )
+            recorder_error: str | None = None
+            if record_reservation is not None and not mcp_recorded:
+                try:
+                    record_reservation(
+                        name=f"{collected.get('name', '').strip()} {collected.get('surname', '').strip()}".strip(),
+                        car_number=collected.get("car_number", ""),
+                        reservation_period=collected.get("reservation_period", ""),
+                        approval_time=approval_time,
+                    )
+                    mcp_recorded = True
+                except Exception as exc:  # pragma: no cover - best-effort side effect
+                    recorder_error = str(exc)
             next_state = _state_with(
                 current,
                 response="Confirmed and recorded.",
@@ -283,20 +308,26 @@ def run_chat_turn(
                 pending_field=None,
                 status="approved",
                 recorded=True,
+                mcp_recorded=mcp_recorded,
                 decided_at=approval_time,
             )
-            return (
-                _booking_response(
-                    response="Confirmed and recorded.",
-                    status="approved",
-                    pending_field=None,
-                    collected=collected,
-                    request_id=request_id,
-                    action_required="none",
-                    decided_at=approval_time,
-                ),
-                next_state,
+            payload = _booking_response(
+                response="Confirmed and recorded.",
+                status="approved",
+                pending_field=None,
+                collected=collected,
+                request_id=request_id,
+                action_required="none",
+                decided_at=approval_time,
+                recorded=True,
+                mcp_recorded=mcp_recorded,
             )
+            if recorder_error:
+                payload["status_detail"] = (
+                    f"{payload.get('status_detail', '').strip()} "
+                    f"(MCP file record failed: {recorder_error})"
+                ).strip()
+            return (payload, next_state)
 
         if decision and decision.get("approved") is False:
             declined_at = decision.get("decided_at")
@@ -307,6 +338,7 @@ def run_chat_turn(
                 pending_field=None,
                 status="declined",
                 recorded=False,
+                mcp_recorded=mcp_recorded,
                 decided_at=declined_at,
             )
             return (
@@ -318,6 +350,8 @@ def run_chat_turn(
                     request_id=request_id,
                     action_required="none",
                     decided_at=declined_at,
+                    recorded=False,
+                    mcp_recorded=mcp_recorded,
                 ),
                 next_state,
             )
@@ -328,6 +362,7 @@ def run_chat_turn(
             booking_active=True,
             pending_field=None,
             status="pending",
+            mcp_recorded=mcp_recorded,
             decided_at=None,
         )
         return (
@@ -338,6 +373,8 @@ def run_chat_turn(
                 collected=collected,
                 request_id=request_id,
                 action_required="await_admin_decision",
+                recorded=recorded,
+                mcp_recorded=mcp_recorded,
             ),
             next_state,
         )
@@ -361,6 +398,7 @@ def run_chat_turn(
                 request_id=new_request_id,
                 status="pending",
                 recorded=False,
+                mcp_recorded=False,
                 decided_at=None,
             )
             return (
@@ -371,6 +409,8 @@ def run_chat_turn(
                     collected=collected,
                     request_id=new_request_id,
                     action_required="await_admin_decision",
+                    recorded=False,
+                    mcp_recorded=False,
                 ),
                 next_state,
             )
@@ -387,6 +427,8 @@ def run_chat_turn(
                     pending_field=missing,
                     collected=updated,
                     status="collecting",
+                    recorded=False,
+                    mcp_recorded=False,
                 )
                 return (
                     _booking_response(
@@ -395,6 +437,8 @@ def run_chat_turn(
                         pending_field=missing,
                         collected=updated,
                         action_required="input",
+                        recorded=False,
+                        mcp_recorded=False,
                     ),
                     next_state,
                 )
@@ -406,6 +450,8 @@ def run_chat_turn(
                 pending_field=None,
                 collected=updated,
                 status="review",
+                recorded=False,
+                mcp_recorded=False,
             )
             return (
                 _booking_response(
@@ -415,6 +461,8 @@ def run_chat_turn(
                     collected=updated,
                     action_required="review_confirmation",
                     review_summary=summary,
+                    recorded=False,
+                    mcp_recorded=False,
                 ),
                 next_state,
             )
@@ -428,6 +476,8 @@ def run_chat_turn(
                 pending_field=edit_field,
                 collected=collected,
                 status="collecting",
+                recorded=recorded,
+                mcp_recorded=mcp_recorded,
             )
             return (
                 _booking_response(
@@ -436,6 +486,8 @@ def run_chat_turn(
                     pending_field=edit_field,
                     collected=collected,
                     action_required="input",
+                    recorded=recorded,
+                    mcp_recorded=mcp_recorded,
                 ),
                 next_state,
             )
@@ -449,6 +501,8 @@ def run_chat_turn(
                 collected=collected,
                 action_required="review_confirmation",
                 review_summary=summary,
+                recorded=recorded,
+                mcp_recorded=mcp_recorded,
             ),
             current,
         )
@@ -469,6 +523,7 @@ def run_chat_turn(
                     request_id=None,
                     status="review",
                     recorded=False,
+                    mcp_recorded=False,
                     decided_at=None,
                 )
                 return (
@@ -479,6 +534,8 @@ def run_chat_turn(
                         collected=collected,
                         action_required="review_confirmation",
                         review_summary=summary,
+                        recorded=False,
+                        mcp_recorded=False,
                     ),
                     next_state,
                 )
@@ -489,6 +546,8 @@ def run_chat_turn(
                 pending_field=pending_field,
                 collected=collected,
                 status="collecting",
+                recorded=recorded,
+                mcp_recorded=mcp_recorded,
             )
             return (
                 _booking_response(
@@ -497,6 +556,8 @@ def run_chat_turn(
                     pending_field=pending_field,
                     collected=collected,
                     action_required="input",
+                    recorded=recorded,
+                    mcp_recorded=mcp_recorded,
                 ),
                 next_state,
             )
@@ -516,6 +577,8 @@ def run_chat_turn(
                 pending_field=pending_field,
                 collected=collected,
                 status="collecting",
+                recorded=recorded,
+                mcp_recorded=mcp_recorded,
             )
             return (
                 _booking_response(
@@ -525,6 +588,8 @@ def run_chat_turn(
                     collected=collected,
                     action_required="input",
                     alternatives=suggestions or None,
+                    recorded=recorded,
+                    mcp_recorded=mcp_recorded,
                 ),
                 next_state,
             )
@@ -541,6 +606,8 @@ def run_chat_turn(
                     pending_field=pending_field,
                     collected=collected,
                     status="collecting",
+                    recorded=recorded,
+                    mcp_recorded=mcp_recorded,
                 )
                 error_text = (
                     f"Requested time is outside working hours ({dynamic.working_hours}). "
@@ -556,6 +623,8 @@ def run_chat_turn(
                         collected=collected,
                         action_required="input",
                         alternatives=suggestions or None,
+                        recorded=recorded,
+                        mcp_recorded=mcp_recorded,
                     ),
                     next_state,
                 )
@@ -569,6 +638,8 @@ def run_chat_turn(
                     pending_field=pending_field,
                     collected=collected,
                     status="collecting",
+                    recorded=recorded,
+                    mcp_recorded=mcp_recorded,
                 )
                 unavailable_text = "No spaces are currently available for that period."
                 if suggestions:
@@ -581,6 +652,8 @@ def run_chat_turn(
                         collected=collected,
                         action_required="input",
                         alternatives=suggestions or None,
+                        recorded=recorded,
+                        mcp_recorded=mcp_recorded,
                     ),
                     next_state,
                 )
@@ -600,6 +673,8 @@ def run_chat_turn(
                 pending_field=next_field,
                 collected=collected,
                 status="collecting",
+                recorded=recorded,
+                mcp_recorded=mcp_recorded,
             )
             return (
                 _booking_response(
@@ -608,6 +683,8 @@ def run_chat_turn(
                     pending_field=next_field,
                     collected=collected,
                     action_required="input",
+                    recorded=recorded,
+                    mcp_recorded=mcp_recorded,
                 ),
                 next_state,
             )
@@ -622,6 +699,7 @@ def run_chat_turn(
             request_id=None,
             status="review",
             recorded=False,
+            mcp_recorded=False,
             decided_at=None,
         )
         return (
@@ -632,6 +710,8 @@ def run_chat_turn(
                 collected=collected,
                 action_required="review_confirmation",
                 review_summary=summary,
+                recorded=False,
+                mcp_recorded=False,
             ),
             next_state,
         )
@@ -652,6 +732,7 @@ def run_chat_turn(
         request_id=None,
         status="collecting",
         recorded=False,
+        mcp_recorded=False,
         decided_at=None,
     )
     return (

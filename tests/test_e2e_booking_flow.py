@@ -10,6 +10,7 @@ def _reset_in_memory_state(monkeypatch):
     # Ensure the e2e test runs locally (no Durable Functions / Cosmos).
     monkeypatch.delenv("DURABLE_BASE_URL", raising=False)
     monkeypatch.delenv("DURABLE_FUNCTION_KEY", raising=False)
+    monkeypatch.setenv("MCP_RECORD_RESERVATIONS", "false")
     monkeypatch.setenv("PERSISTENCE_BACKEND", "memory")
     monkeypatch.setenv("ADMIN_UI_TOKEN", "secret-token")
 
@@ -84,4 +85,3 @@ def test_end_to_end_booking_approval_flow():
     reservation = persistence_module.IN_MEMORY_PERSISTENCE.reservations[0]
     assert reservation.get("request_id") == request_id
     assert reservation.get("car_number") == "AA-1234"
-
