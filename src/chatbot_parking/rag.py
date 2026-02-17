@@ -12,6 +12,7 @@ from langchain_core.embeddings import FakeEmbeddings
 from langchain_core.language_models.llms import LLM
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import PromptTemplate
+from langchain_text_splitters import RecursiveCharacterTextSplitter, TokenTextSplitter
 
 from chatbot_parking.config import get_settings
 from chatbot_parking.guardrails import contains_sensitive_data, redact_sensitive
@@ -23,18 +24,54 @@ class RetrievalResult:
     documents: List[Document]
 
 
-def _prepare_documents() -> list[Document]:
-    documents: list[Document] = []
+def _build_splitter(
+    chunk_size: int = 300,
+    chunk_overlap: int = 40,
+    splitter_type: str = "recursive",
+):
+    if splitter_type == "recursive":
+        return RecursiveCharacterTextSplitter(
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            separators=["\n\n", "\n", ". ", " ", ""],
+        )
+    if splitter_type == "token":
+        return TokenTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    raise ValueError(f"Unsupported splitter_type: {splitter_type}")
+
+
+def _prepare_documents(
+    chunk_size: int = 300,
+    chunk_overlap: int = 40,
+    splitter_type: str = "recursive",
+) -> list[Document]:
+    splitter = _build_splitter(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        splitter_type=splitter_type,
+    )
+    chunked_documents: list[Document] = []
+
     for doc in STATIC_DOCUMENTS:
+        source_id = doc["id"]
         redacted = redact_sensitive(doc["text"])
         sensitivity = "private" if contains_sensitive_data(doc["text"]) else "public"
-        documents.append(
-            Document(
-                page_content=redacted,
-                metadata={"id": doc["id"], "sensitivity": sensitivity},
+
+        for chunk_index, chunk_text in enumerate(splitter.split_text(redacted)):
+            chunked_documents.append(
+                Document(
+                    page_content=chunk_text,
+                    metadata={
+                        "id": source_id,
+                        "source_id": source_id,
+                        "chunk_id": f"{source_id}#chunk{chunk_index}",
+                        "chunk_index": chunk_index,
+                        "sensitivity": sensitivity,
+                    },
+                )
             )
-        )
-    return documents
+
+    return chunked_documents
 
 
 def _build_embeddings() -> Embeddings:
@@ -52,9 +89,19 @@ def _build_embeddings() -> Embeddings:
     raise ValueError(f"Unsupported embeddings provider: {settings.embeddings_provider}")
 
 
-def build_vector_store(embeddings: Embeddings | None = None, insert_documents: bool = True):
+def build_vector_store(
+    embeddings: Embeddings | None = None,
+    insert_documents: bool = True,
+    chunk_size: int = 300,
+    chunk_overlap: int = 40,
+    splitter_type: str = "recursive",
+):
     settings = get_settings()
-    docs = _prepare_documents()
+    docs = _prepare_documents(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        splitter_type=splitter_type,
+    )
     embedder = embeddings or _build_embeddings()
 
     if settings.vector_backend == "weaviate":

@@ -1,8 +1,7 @@
 """Lightweight FastAPI server that exposes user and admin web UIs for demos."""
 
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Optional
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException
@@ -11,6 +10,14 @@ from pydantic import BaseModel
 
 from chatbot_parking.chatbot import ParkingChatbot
 from chatbot_parking.cli import is_reservation_intent
+from chatbot_parking.admin_store import (
+    STORE as ADMIN_STORE,
+    create_admin_request,
+    get_admin_decision,
+    list_pending_requests,
+    post_admin_decision,
+)
+from chatbot_parking.interactive_orchestration import DEFAULT_INTERACTIVE_GRAPH
 
 app = FastAPI()
 chatbot = ParkingChatbot()
@@ -35,7 +42,12 @@ class ChatPromptIn(BaseModel):
     message: str
 
 
-STORE: Dict[str, Dict[str, Any]] = {}
+class ChatMessageIn(BaseModel):
+    message: str
+    thread_id: Optional[str] = None
+
+
+STORE = ADMIN_STORE
 
 
 @app.post("/chat/ask")
@@ -55,6 +67,30 @@ def ask_chatbot(payload: ChatPromptIn):
     return {"response": chatbot.answer_question(message)}
 
 
+@app.post("/chat/message")
+def chat_message(payload: ChatMessageIn):
+    message = payload.message.strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+
+    thread_id = payload.thread_id or str(uuid4())
+    result = DEFAULT_INTERACTIVE_GRAPH.invoke(
+        {"message": message},
+        config={"configurable": {"thread_id": thread_id}},
+    )
+
+    response: dict[str, str] = {
+        "response": result.get("response", ""),
+        "thread_id": thread_id,
+        "mode": result.get("mode", "info"),
+    }
+    if result.get("request_id") is not None:
+        response["request_id"] = result["request_id"]
+    if result.get("status") is not None:
+        response["status"] = result["status"]
+    return response
+
+
 @app.get("/chat/ui")
 def chat_ui():
     """Serve a small single-file web UI for user prompts."""
@@ -66,44 +102,36 @@ def chat_ui():
 
 @app.post("/admin/request")
 def create_request(payload: RequestIn):
-    request_id = str(uuid4())
-    STORE[request_id] = {
-        "request_id": request_id,
-        "payload": payload.dict(),
-        "decision": None,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
+    request_id = create_admin_request(payload.model_dump())
     return {"request_id": request_id}
 
 
 @app.get("/admin/requests")
 def list_requests():
     """Return only pending requests (no decision yet)."""
-    return [v for v in STORE.values() if not v.get("decision")]
+    return list_pending_requests()
 
 
 @app.get("/admin/decisions/{request_id}")
 def get_decision(request_id: str):
-    entry = STORE.get(request_id)
-    if not entry:
+    if request_id not in STORE:
         raise HTTPException(status_code=404, detail="Not found")
-    if not entry["decision"]:
+    decision = get_admin_decision(request_id)
+    if not decision:
         raise HTTPException(status_code=404, detail="Decision pending")
-    return entry["decision"]
+    return decision
 
 
 @app.post("/admin/decision")
 def post_decision(decision: DecisionIn):
-    entry = STORE.get(decision.request_id)
-    if not entry:
+    decision_result = post_admin_decision(
+        request_id=decision.request_id,
+        approved=decision.approved,
+        notes=decision.notes,
+    )
+    if not decision_result:
         raise HTTPException(status_code=404, detail="Request not found")
-    decided_at = datetime.now(timezone.utc).isoformat()
-    entry["decision"] = {
-        "approved": decision.approved,
-        "decided_at": decided_at,
-        "notes": decision.notes,
-    }
-    return entry["decision"]
+    return decision_result
 
 
 @app.get("/admin/ui")
