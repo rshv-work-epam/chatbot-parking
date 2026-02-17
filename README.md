@@ -236,9 +236,8 @@ pytest
 ## Load Test
 
 ```bash
-python scripts/load_test_chat.py \
+python scripts/load_test_chat_message.py \
   --base-url http://localhost:8000 \
   --requests 50 \
-  --concurrency 10 \
-  --admin-token <ADMIN_UI_TOKEN>
+  --concurrency 10
 ```
