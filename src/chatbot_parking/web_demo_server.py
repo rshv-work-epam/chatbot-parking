@@ -269,7 +269,8 @@ def _invoke_durable_chat(message: str, thread_id: str) -> dict:
     if "code=" not in str(status_url):
         status_headers = _build_admin_headers()
 
-    timeout_seconds = float(os.getenv("DURABLE_POLL_TIMEOUT", "20"))
+    # Consumption plans can cold-start; default to a longer bound to avoid unnecessary fallback.
+    timeout_seconds = float(os.getenv("DURABLE_POLL_TIMEOUT", "60"))
     poll_interval = float(os.getenv("DURABLE_POLL_INTERVAL", "1.0"))
     deadline = time.time() + timeout_seconds
 
