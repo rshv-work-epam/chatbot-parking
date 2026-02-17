@@ -218,6 +218,7 @@
 
         <form id="chat-form">
           <input id="message" type="text" placeholder="Type your message" required />
+          <button id="dictate-btn" class="btn" type="button" title="Dictate using your microphone">Dictate</button>
           <button class="btn primary" type="submit">Send</button>
         </form>
 
@@ -243,9 +244,65 @@
       const retryBtn = document.getElementById('retry-btn');
       const authStatus = document.getElementById('auth-status');
       const authActions = document.getElementById('auth-actions');
+      const dictateBtn = document.getElementById('dictate-btn');
 
       let lastMessageForRetry = null;
       let currentThreadStorageKey = THREAD_ID_KEY;
+      let isDictating = false;
+      let speechRecognition = null;
+
+      function initDictation() {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+          dictateBtn.style.display = 'none';
+          return;
+        }
+
+        speechRecognition = new SpeechRecognition();
+        speechRecognition.continuous = false;
+        speechRecognition.interimResults = false;
+        speechRecognition.lang = navigator.language || 'en-US';
+
+        speechRecognition.addEventListener('start', () => {
+          isDictating = true;
+          dictateBtn.textContent = 'Stop';
+          dictateBtn.setAttribute('aria-pressed', 'true');
+          statusDetail.textContent = 'Listening...';
+        });
+
+        speechRecognition.addEventListener('end', () => {
+          isDictating = false;
+          dictateBtn.textContent = 'Dictate';
+          dictateBtn.setAttribute('aria-pressed', 'false');
+        });
+
+        speechRecognition.addEventListener('result', (event) => {
+          const result = event?.results?.[0]?.[0];
+          const transcript = (result?.transcript || '').trim();
+          if (!transcript) return;
+          input.value = `${(input.value || '').trim()}${input.value.trim() ? ' ' : ''}${transcript}`.trim();
+          input.focus();
+        });
+
+        speechRecognition.addEventListener('error', (event) => {
+          const code = event?.error || 'unknown';
+          showError(`Dictation error: ${code}. Check microphone permissions and retry.`);
+        });
+
+        dictateBtn.addEventListener('click', () => {
+          hideError();
+          if (!speechRecognition) return;
+          try {
+            if (isDictating) {
+              speechRecognition.stop();
+            } else {
+              speechRecognition.start();
+            }
+          } catch (error) {
+            showError(`Dictation error: ${error.message}`);
+          }
+        });
+      }
 
       function generateThreadId() {
         return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -452,6 +509,7 @@
       append('bot', 'Hello! Ask for parking info or start a booking request.');
       setProgress(null, 'Ask a question or start a booking.');
       setChip('info', 'collecting', 'Info mode');
+      initDictation();
       loadAuthState().catch(() => {
         authStatus.textContent = 'Auth status is currently unavailable.';
       });
