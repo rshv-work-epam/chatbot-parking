@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import json
 import os
 import sys
+from pathlib import Path
 from typing import Any
 
 from mcp import ClientSession, StdioServerParameters
@@ -40,10 +41,19 @@ async def _record_via_mcp_stdio(
     else:
         args = ["-m", "chatbot_parking.mcp_servers.reservations_stdio_server"]
 
+    env = dict(os.environ)
+    # Ensure the MCP server process can import the package when running from source.
+    src_dir = Path(__file__).resolve().parents[1]
+    existing = env.get("PYTHONPATH", "")
+    paths = [p for p in existing.split(os.pathsep) if p]
+    if str(src_dir) not in paths:
+        paths.insert(0, str(src_dir))
+        env["PYTHONPATH"] = os.pathsep.join(paths)
+
     params = StdioServerParameters(
         command=command,
         args=args,
-        env=dict(os.environ),
+        env=env,
         cwd=os.getcwd(),
     )
 

@@ -50,11 +50,12 @@ jobs:
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           AZURE_ACR_NAME: ${{ vars.AZURE_ACR_NAME }}
           AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          AZURE_FUNCTIONAPP_NAME: ${{ vars.AZURE_FUNCTIONAPP_NAME }}
           ADMIN_UI_TOKEN: ${{ secrets.ADMIN_UI_TOKEN }}
         run: |
           set -e
           missing=0
-          for v in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID AZURE_ACR_NAME AZURE_RESOURCE_GROUP ADMIN_UI_TOKEN; do
+          for v in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID AZURE_ACR_NAME AZURE_RESOURCE_GROUP AZURE_FUNCTIONAPP_NAME ADMIN_UI_TOKEN; do
             if [ -z "${!v}" ]; then
               echo "::error::$v is not set." >&2
               missing=1
@@ -86,6 +87,18 @@ jobs:
         if: steps.check-azure.outputs.has-azure == 'true'
         run: |
           FULL_IMAGE="${REGISTRY_NAME}.azurecr.io/${{ matrix.image_name }}:${{ github.sha }}"
+          FUNC_NAME="${{ vars.AZURE_FUNCTIONAPP_NAME }}"
+          FUNC_KEY="$(az functionapp keys list -g "$RESOURCE_GROUP" -n "$FUNC_NAME" --query 'functionKeys.default' -o tsv)"
+          if [ -z "$FUNC_KEY" ]; then
+            echo "::error::Unable to retrieve function key for $FUNC_NAME" >&2
+            exit 1
+          fi
+
+          az containerapp secret set \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "${{ matrix.app_name }}" \
+            --secrets durable-function-key="$FUNC_KEY"
+
           az containerapp update \
             --resource-group "$RESOURCE_GROUP" \
             --name "${{ matrix.app_name }}" \
@@ -93,8 +106,31 @@ jobs:
             --set-env-vars \
               APP_ENV=prod \
               ADMIN_UI_TOKEN='${{ secrets.ADMIN_UI_TOKEN }}' \
+              DURABLE_BASE_URL="https://${FUNC_NAME}.azurewebsites.net" \
+              DURABLE_FUNCTION_KEY=secretref:durable-function-key \
+              PARKING_DB_PATH=/tmp/parking.db \
+              RESERVATIONS_FILE_PATH=/tmp/reservations.txt \
+              MCP_RECORD_RESERVATIONS=true \
               MCP_SERVER_COMMAND=python \
               MCP_SERVER_ARGS='-m chatbot_parking.mcp_servers.reservations_stdio_server'
+
+      - name: Smoke test deployed UI + booking flow
+        if: steps.check-azure.outputs.has-azure == 'true'
+        env:
+          ADMIN_UI_TOKEN: ${{ secrets.ADMIN_UI_TOKEN }}
+        run: |
+          FQDN="$(az containerapp show --resource-group "$RESOURCE_GROUP" --name "${{ matrix.app_name }}" --query 'properties.configuration.ingress.fqdn' -o tsv)"
+          BASE_URL="https://${FQDN}"
+
+          # Wait for the new revision to become ready.
+          for i in $(seq 1 30); do
+            if curl -fsSL "${BASE_URL}/admin/health" >/dev/null; then
+              break
+            fi
+            sleep 5
+          done
+
+          BASE_URL="$BASE_URL" ADMIN_TOKEN="$ADMIN_UI_TOKEN" ./scripts/smoke_test_cloud.sh
 
   deploy-durable:
     runs-on: ubuntu-latest

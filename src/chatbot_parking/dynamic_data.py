@@ -11,6 +11,7 @@ DEFAULT_AVAILABLE_SPACES = int(os.getenv("PARKING_AVAILABLE_SPACES", "42"))
 
 DEFAULT_DB_PATH = Path.cwd() / "data" / "parking.db"
 FALLBACK_DB_PATH = Path(__file__).resolve().parents[2] / "data" / "parking.db"
+TMP_DB_PATH = Path("/tmp/parking.db")
 
 
 def _get_db_path() -> Path:
@@ -18,16 +19,22 @@ def _get_db_path() -> Path:
     if env:
         return Path(env)
 
-    candidates = [
-        Path("/app/data/parking.db"),
-        DEFAULT_DB_PATH,
-        FALLBACK_DB_PATH,
-        Path("/tmp/parking.db"),
-    ]
+    candidates = [Path("/app/data/parking.db"), DEFAULT_DB_PATH, FALLBACK_DB_PATH]
     for candidate in candidates:
         if candidate.exists():
             return candidate
-    return DEFAULT_DB_PATH
+
+    # Prefer a writable location by default. Container images often run as a non-root user
+    # and cannot create /app/data at runtime, so fall back to /tmp.
+    for candidate in (DEFAULT_DB_PATH, TMP_DB_PATH):
+        try:
+            candidate.parent.mkdir(parents=True, exist_ok=True)
+            if os.access(candidate.parent, os.W_OK):
+                return candidate
+        except Exception:
+            continue
+
+    return TMP_DB_PATH
 
 
 @dataclass

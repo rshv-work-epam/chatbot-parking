@@ -22,6 +22,7 @@ class InteractiveState(TypedDict, total=False):
     request_id: str | None
     status: Literal["collecting", "review", "pending", "approved", "declined", "cancelled"]
     recorded: bool
+    mcp_recorded: bool
     action_required: str
     progress: dict
     review_summary: str

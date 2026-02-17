@@ -55,3 +55,17 @@ def test_generic_channel_adapter() -> None:
     body = response.json()
     assert body["thread_id"] == "webchat:u1"
     assert body["channel"] == "webchat"
+
+
+def test_message_length_limits(monkeypatch) -> None:
+    monkeypatch.setenv("MAX_MESSAGE_CHARS", "5")
+
+    response = client.post("/chat/message", json={"message": "123456"})
+    assert response.status_code == 413
+
+
+def test_thread_id_length_limits(monkeypatch) -> None:
+    monkeypatch.setenv("MAX_THREAD_ID_CHARS", "5")
+
+    response = client.post("/chat/message", json={"message": "hi", "thread_id": "123456"})
+    assert response.status_code == 413

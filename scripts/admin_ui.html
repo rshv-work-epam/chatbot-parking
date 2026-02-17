@@ -164,23 +164,67 @@
             return;
           }
 
-          container.innerHTML = '';
+          container.textContent = '';
           for (const item of pending) {
             const payload = item.payload || {};
+            const requestId = item.request_id || '';
+
             const el = document.createElement('div');
             el.className = 'item';
-            el.innerHTML = `
-              <div><strong>Request:</strong> ${item.request_id}</div>
-              <div class="meta">Created: ${formatDate(item.created_at)}</div>
-              <div class="meta">Name: ${payload.name || ''} ${payload.surname || ''}</div>
-              <div class="meta">Car: ${payload.car_number || ''}</div>
-              <div class="meta">Period: ${payload.reservation_period || ''}</div>
-              <textarea id="note-${item.request_id}" rows="2" style="width:100%;margin-top:8px;" placeholder="Optional admin note"></textarea>
-              <div class="decision-row">
-                <button class="approve" data-id="${item.request_id}" data-approved="true">Approve</button>
-                <button class="decline" data-id="${item.request_id}" data-approved="false">Decline</button>
-              </div>
-            `;
+
+            const reqLine = document.createElement('div');
+            const reqStrong = document.createElement('strong');
+            reqStrong.textContent = 'Request:';
+            reqLine.appendChild(reqStrong);
+            reqLine.appendChild(document.createTextNode(` ${requestId}`));
+            el.appendChild(reqLine);
+
+            const created = document.createElement('div');
+            created.className = 'meta';
+            created.textContent = `Created: ${formatDate(item.created_at)}`;
+            el.appendChild(created);
+
+            const name = document.createElement('div');
+            name.className = 'meta';
+            name.textContent = `Name: ${(payload.name || '').trim()} ${(payload.surname || '').trim()}`.trim();
+            el.appendChild(name);
+
+            const car = document.createElement('div');
+            car.className = 'meta';
+            car.textContent = `Car: ${payload.car_number || ''}`;
+            el.appendChild(car);
+
+            const period = document.createElement('div');
+            period.className = 'meta';
+            period.textContent = `Period: ${payload.reservation_period || ''}`;
+            el.appendChild(period);
+
+            const textarea = document.createElement('textarea');
+            textarea.id = `note-${requestId}`;
+            textarea.rows = 2;
+            textarea.style.width = '100%';
+            textarea.style.marginTop = '8px';
+            textarea.placeholder = 'Optional admin note';
+            el.appendChild(textarea);
+
+            const row = document.createElement('div');
+            row.className = 'decision-row';
+
+            const approveBtn = document.createElement('button');
+            approveBtn.className = 'approve';
+            approveBtn.dataset.id = requestId;
+            approveBtn.dataset.approved = 'true';
+            approveBtn.textContent = 'Approve';
+            row.appendChild(approveBtn);
+
+            const declineBtn = document.createElement('button');
+            declineBtn.className = 'decline';
+            declineBtn.dataset.id = requestId;
+            declineBtn.dataset.approved = 'false';
+            declineBtn.textContent = 'Decline';
+            row.appendChild(declineBtn);
+
+            el.appendChild(row);
             container.appendChild(el);
           }
         } catch (_error) {
