@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
-FROM python:3.11-slim AS base
+# Use MCR base image to avoid Docker Hub pull rate limits in ACR builds.
+FROM mcr.microsoft.com/devcontainers/python:3.11-bookworm AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
