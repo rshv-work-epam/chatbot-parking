@@ -9,18 +9,48 @@
       .item { border: 1px solid #ddd; padding: 10px; margin-bottom: 8px; }
       .meta { color: #555; margin-top: 4px; }
       button { margin-right: 8px; }
+      #token { min-width: 300px; }
     </style>
   </head>
   <body>
     <h2>Pending Approval Requests</h2>
     <p><a href="/chat/ui">Back to Chat UI</a></p>
+    <p>
+      Admin token:
+      <input id="token" type="password" placeholder="Optional: x-api-token" />
+      <button id="save-token" type="button">Save token</button>
+    </p>
     <div id="pending">Loading...</div>
 
     <script>
+      const TOKEN_KEY = 'parking-admin-token';
+      const tokenInput = document.getElementById('token');
+      const saveTokenButton = document.getElementById('save-token');
+
+      tokenInput.value = localStorage.getItem(TOKEN_KEY) || '';
+
+      function authHeaders() {
+        const token = localStorage.getItem(TOKEN_KEY) || '';
+        return token ? { 'x-api-token': token } : {};
+      }
+
+      saveTokenButton.addEventListener('click', () => {
+        localStorage.setItem(TOKEN_KEY, tokenInput.value.trim());
+        fetchPending();
+      });
+
       async function fetchPending() {
         const container = document.getElementById('pending');
         try {
-          const response = await fetch('/admin/requests');
+          const response = await fetch('/admin/requests', {
+            headers: authHeaders(),
+          });
+
+          if (response.status === 401) {
+            container.textContent = 'Unauthorized. Provide valid admin token.';
+            return;
+          }
+
           const requests = await response.json();
           const pending = Array.isArray(requests) ? requests : [];
 
@@ -53,7 +83,7 @@
       async function sendDecision(requestId, approved) {
         const response = await fetch('/admin/decision', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
           body: JSON.stringify({
             request_id: requestId,
             approved,

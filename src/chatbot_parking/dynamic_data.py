@@ -1,10 +1,15 @@
 """Dynamic data access for availability, hours, and pricing."""
 
 from dataclasses import dataclass
+import os
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path("data/parking.db")
+DEFAULT_DB_PATH = Path(__file__).resolve().parents[2] / "data" / "parking.db"
+
+
+def _get_db_path() -> Path:
+    return Path(os.getenv("PARKING_DB_PATH", str(DEFAULT_DB_PATH)))
 
 
 @dataclass
@@ -15,8 +20,9 @@ class DynamicInfo:
 
 
 def initialize_db() -> None:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(DB_PATH) as connection:
+    db_path = _get_db_path()
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(db_path) as connection:
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS parking_status (
@@ -39,7 +45,7 @@ def initialize_db() -> None:
 
 def get_dynamic_info() -> DynamicInfo:
     initialize_db()
-    with sqlite3.connect(DB_PATH) as connection:
+    with sqlite3.connect(_get_db_path()) as connection:
         row = connection.execute(
             "SELECT working_hours, pricing, available_spaces FROM parking_status LIMIT 1"
         ).fetchone()

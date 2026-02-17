@@ -15,6 +15,7 @@ WORKDIR /app
 COPY requirements.txt pyproject.toml README.md ./
 COPY src ./src
 COPY data ./data
+COPY scripts ./scripts
 
 RUN pip install --upgrade pip \
     && pip install -r requirements.txt \
@@ -25,4 +26,4 @@ USER 10001
 
 EXPOSE 8000
 
-CMD ["uvicorn", "chatbot_parking.admin_api:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "chatbot_parking.web_demo_server:app", "--host", "0.0.0.0", "--port", "8000"]

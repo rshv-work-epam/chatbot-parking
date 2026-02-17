@@ -1,37 +1,24 @@
-# Production Readiness (Azure + GitHub)
+# Production Readiness (Azure Hybrid: Container Apps + Durable Functions)
 
-This guide documents a production-oriented deployment approach for the parking chatbot services on Azure using GitHub Actions.
+This guide documents a production-oriented deployment for the parking chatbot on Azure using GitHub Actions.
 
-## What was added
+## What is deployed
 
-- GitHub CI workflow for tests on pull requests and pushes.
-- GitHub CD workflow for Azure Container Apps deployment via OIDC.
-- Hardened production Dockerfile running as non-root.
-- Azure Bicep baseline for ACR + Container Apps + Log Analytics.
-- Optional Azure Cosmos DB (SQL API, serverless) for reservation/chat state persistence.
-- Health endpoints for liveness probes.
+- **UI/API Container App** (`chatbot-parking-ui`): serves `/chat/ui`, `/admin/ui`, `/chat/message`, and `/admin/*`.
+- **Durable Function App**: executes chat turns via `POST /api/chat/start`.
+- **Cosmos DB SQL API (serverless)**: stores thread state, approval requests/decisions, reservation records.
+- **MCP Container App** (`chatbot-parking-mcp`): compatibility endpoint for `/record`.
+- **ACR + Container Apps Environment + Log Analytics + App Insights**.
 
 ## 1) Prerequisites
 
-- Azure subscription.
-- Existing resource group.
+- Azure subscription and resource group.
 - GitHub repository with Actions enabled.
-- Azure CLI (`az`) and Bicep support installed.
-
-
-### Database choice
-
-For this workload (JSON chat/reservation records with bursty traffic), the recommended Azure database is **Azure Cosmos DB for NoSQL (SQL API, serverless)**. It provides:
-
-- Flexible JSON schema for evolving chatbot payloads.
-- Low-ops autoscaling/serverless economics for variable request rates.
-- Native SDK support for Python APIs and Azure Functions.
-
-Template parameters in `infra/azure/main.bicep` allow turning this on/off with `deployCosmosDb` and customizing account/database/container names.
+- Azure CLI (`az`) with Bicep support.
 
 ## 2) Provision infrastructure
 
-Deploy the infrastructure template from `infra/azure/main.bicep`:
+Deploy IaC from `infra/azure/main.bicep`:
 
 ```bash
 az deployment group create \
@@ -40,96 +27,94 @@ az deployment group create \
   --parameters @infra/azure/main.parameters.json
 ```
 
-After deployment, capture outputs (`adminApiUrl`, `mcpServerUrl`, `acrLoginServer`, and Cosmos outputs when enabled).
+Capture outputs:
 
-## 3) Configure GitHub OIDC for Azure login
+- `uiApiUrl`
+- `mcpServerUrl`
+- `durableBaseUrl`
+- `acrLoginServer`
+- `cosmosDbEndpoint`
+- `cosmosDbDatabase`
+- `cosmosDbThreadsContainer`
+- `cosmosDbApprovalsContainer`
+- `cosmosDbReservationsContainer`
 
-Create an Entra ID application/service principal with federated credentials for your GitHub org/repo and environment/branch policy.
+## 3) Configure GitHub OIDC and repository settings
 
-Store these repository secrets:
+Secrets:
 
 - `AZURE_CLIENT_ID`
 - `AZURE_TENANT_ID`
 - `AZURE_SUBSCRIPTION_ID`
+- `ADMIN_UI_TOKEN`
 - `ADMIN_API_TOKEN`
 - `MCP_API_TOKEN`
 
-Store these repository variables:
+Variables:
 
 - `AZURE_ACR_NAME`
 - `AZURE_RESOURCE_GROUP`
-- `AZURE_CONTAINERAPP_ENV`
+- `AZURE_FUNCTIONAPP_NAME`
 
-## 4) CI/CD flow
+## 4) CI/CD behavior
 
 ### CI (`.github/workflows/ci.yml`)
 
-- Runs on pull requests and pushes to `main`.
-- Installs dependencies and runs `pytest -q`.
+- Runs tests on push/PR.
 
 ### CD (`.github/workflows/cd-azure-containerapps.yml`)
 
-- Runs on pushes to `main` or manual dispatch.
-- Authenticates to Azure using OIDC (`azure/login@v2`).
-- Builds images with `az acr build` and tags with commit SHA + `latest`.
-- Updates both container apps with the new image.
+- Builds and pushes `chatbot-parking-ui` and `chatbot-parking-mcp` images to ACR.
+- Updates both container apps.
+- Deploys Durable Function code from `infra/azure/durable_functions`.
 
-## 5) Runtime hardening notes
+## 5) Runtime configuration
 
-- Image uses `python:3.11-slim`.
-- Container runs as an unprivileged user (`uid=10001`).
-- `.dockerignore` excludes local and sensitive artifacts from build context.
-- Azure Container Apps are configured with min/max replicas and liveness probes.
+UI container expects:
+
+- `DURABLE_BASE_URL`
+- `DURABLE_FUNCTION_KEY`
+- `COSMOS_DB_ENDPOINT`
+- `COSMOS_DB_KEY`
+- `COSMOS_DB_DATABASE`
+- `COSMOS_DB_CONTAINER_THREADS`
+- `COSMOS_DB_CONTAINER_APPROVALS`
+- `COSMOS_DB_CONTAINER_RESERVATIONS`
+- `PERSISTENCE_BACKEND=cosmos`
+- `ADMIN_UI_TOKEN`
+
+Durable Function expects:
+
+- Cosmos connection variables listed above.
+- `PERSISTENCE_BACKEND=cosmos`
 
 ## 6) Post-deploy validation
 
-Use health endpoints:
-
-- Admin API: `GET /admin/health`
-- MCP Server: `GET /health`
-
-Example:
-
 ```bash
-curl -fsS https://<admin-fqdn>/admin/health
+curl -fsS https://<ui-fqdn>/chat/ui
+curl -fsS https://<ui-fqdn>/admin/ui
+curl -fsS https://<ui-fqdn>/admin/health
 curl -fsS https://<mcp-fqdn>/health
 ```
 
-## 7) Recommended next steps (optional)
-
-- Move `MCP_API_TOKEN` and `ADMIN_API_TOKEN` to Azure Key Vault and reference managed secrets.
-- Add branch protection requiring `CI` workflow success.
-- Add image vulnerability scanning (e.g., Trivy or Defender for Cloud).
-- Add staging environment with required approvals before production deployment.
-
-## 8) Azure Durable Functions option (event-driven orchestration)
-
-If you prefer serverless orchestration over always-on containers, use the Function App skeleton in `infra/azure/durable_functions/`.
-
-What is included:
-
-- `function_app.py`: Durable client trigger (`POST /api/chat/start`), orchestrator, and activity.
-- `host.json`: Azure Functions host configuration.
-- `local.settings.json.sample`: local runtime settings template.
-- `requirements.txt`: runtime dependencies (`azure-functions`, `azure-functions-durable`).
-
-Local run (requires Azure Functions Core Tools):
+Durable starter check:
 
 ```bash
-cd infra/azure/durable_functions
-cp local.settings.json.sample local.settings.json
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-func start
-```
-
-Start an orchestration:
-
-```bash
-curl -X POST http://localhost:7071/api/chat/start \
+curl -X POST https://<function-fqdn>/api/chat/start \
+  -H 'x-functions-key: <function-key>' \
   -H 'Content-Type: application/json' \
-  -d '{"message": "What are the parking hours?"}'
+  -d '{"message":"What are the parking hours?","thread_id":"smoke-1"}'
 ```
 
-The durable starter returns status query URLs that can be polled until completion.
+## 7) Smoke flow (end-to-end)
 
+1. Open `https://<ui-fqdn>/chat/ui` and start booking.
+2. Open `https://<ui-fqdn>/admin/ui`, enter `ADMIN_UI_TOKEN`, approve request.
+3. Return to chat and send another message; expect `Confirmed and recorded.`.
+4. Verify reservation item exists in Cosmos reservations container.
+
+## 8) Recommended hardening follow-ups
+
+- Move secret values to Key Vault and use managed identity.
+- Add staged environments with approvals.
+- Add vulnerability scanning to CD.

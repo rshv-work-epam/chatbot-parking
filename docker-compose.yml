@@ -3,7 +3,7 @@ version: "3.9"
 services:
   admin_api:
     build: .
-    command: uvicorn chatbot_parking.admin_api:app --host 0.0.0.0 --port 8000
+    command: uvicorn chatbot_parking.web_demo_server:app --host 0.0.0.0 --port 8000
     ports:
       - "8000:8000"
     environment:

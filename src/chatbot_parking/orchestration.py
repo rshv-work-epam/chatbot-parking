@@ -8,6 +8,8 @@ from chatbot_parking.admin_agent import AdminDecision, request_admin_approval_to
 from chatbot_parking.chatbot import ConversationState, ParkingChatbot, ReservationRequest
 from chatbot_parking.mcp_client import record_reservation
 
+CHATBOT = ParkingChatbot()
+
 
 @dataclass
 class WorkflowState:
@@ -43,22 +45,20 @@ def request_admin_approval(reservation: ReservationRequest) -> AdminDecision:
 
 
 def route_intent(state: WorkflowState) -> WorkflowState:
-    chatbot = ParkingChatbot()
-    intent = chatbot.detect_intent(state.user_input)
+    intent = CHATBOT.detect_intent(state.user_input)
     if intent == "info":
-        state.response = chatbot.answer_question(state.user_input)
+        state.response = CHATBOT.answer_question(state.user_input)
         return state
-    state.conversation = chatbot.start_reservation()
+    state.conversation = CHATBOT.start_reservation()
     return state
 
 
 def collect_user_details(state: WorkflowState) -> WorkflowState:
     if state.conversation is None:
         return state
-    chatbot = ParkingChatbot()
     while state.booking_inputs and state.conversation.pending_field is not None:
         user_input = state.booking_inputs.pop(0)
-        response, request = chatbot.collect_reservation(state.conversation, user_input)
+        response, request = CHATBOT.collect_reservation(state.conversation, user_input)
         state.response = response
         if request is not None:
             state.reservation_request = request

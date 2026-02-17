@@ -81,16 +81,16 @@ Commands in interactive mode:
 OpenAI-backed mode requires environment variables (for example `OPENAI_API_KEY`, `LLM_PROVIDER=openai`).
 Without those settings, interactive mode still works in demo mode with local defaults.
 
-## User Prompt Web UI
+## User Prompt + Admin UI
 
-You can run a convenient browser UI for end users to ask prompts:
+Run the unified UI/API server:
 
 ```bash
 PYTHONPATH=./src python scripts/admin_server.py
 # Open http://localhost:8000/chat/ui
 ```
 
-The same lightweight server still exposes the approval console at `http://localhost:8000/admin/ui`.
+Admin approval UI is available at `http://localhost:8000/admin/ui`.
 
 ## Try Manual Approval UI (60 seconds)
 
@@ -166,16 +166,19 @@ python -m chatbot_parking.main
 
 ## Production DevOps (Azure + GitHub)
 
-Production deployment assets are provided for Azure Container Apps + GitHub Actions:
+Production deployment assets are provided for a hybrid Azure runtime:
 
 - Infrastructure-as-Code: `infra/azure/main.bicep`
 - CI workflow: `.github/workflows/ci.yml`
-- CD workflow: `.github/workflows/cd-azure-containerapps.yml`
+- CD workflow: `.github/workflows/cd-azure-containerapps.yml` (UI + MCP container apps + Durable Functions)
 - Runbook: `docs/devops_production_azure_github.md`
 
-An Azure Durable Functions cloud option is also included at `infra/azure/durable_functions/` for event-driven orchestration with status endpoints (`/api/chat/start`).
+Cloud architecture:
 
-For cloud persistence, the Azure IaC now supports **Azure Cosmos DB (SQL API, serverless)** as a suitable database for reservation/chat records.
+- `chatbot-parking-ui` Container App runs `chatbot_parking.web_demo_server:app` and serves `/chat/ui` + `/admin/ui`.
+- Durable Function (`/api/chat/start`) executes chat turns.
+- Cosmos DB stores thread state, admin approvals, and reservation records.
+- `chatbot-parking-mcp` remains available for compatibility.
 
 See the runbook for Azure OIDC configuration, required GitHub secrets/variables, and deployment steps.
 

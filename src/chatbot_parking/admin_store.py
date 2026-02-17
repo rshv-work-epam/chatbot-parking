@@ -1,45 +1,37 @@
-"""Shared in-memory store for admin approval requests."""
+"""Shared admin approval store built on pluggable persistence."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any
-from uuid import uuid4
 
-STORE: dict[str, dict[str, Any]] = {}
+from chatbot_parking.persistence import IN_MEMORY_PERSISTENCE, get_persistence
+
+# Backward compatibility alias for tests that inspect in-memory state.
+STORE = IN_MEMORY_PERSISTENCE.approvals
 
 
 def create_admin_request(payload: dict[str, Any]) -> str:
-    request_id = str(uuid4())
-    STORE[request_id] = {
-        "request_id": request_id,
-        "payload": payload,
-        "decision": None,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-    return request_id
+    return get_persistence().create_approval(payload)
 
 
 def list_pending_requests() -> list[dict[str, Any]]:
-    return [entry for entry in STORE.values() if not entry.get("decision")]
+    return get_persistence().list_pending_approvals()
+
+
+def get_admin_request(request_id: str) -> dict[str, Any] | None:
+    return get_persistence().get_approval(request_id)
 
 
 def get_admin_decision(request_id: str) -> dict[str, Any] | None:
-    entry = STORE.get(request_id)
-    if not entry:
+    request = get_persistence().get_approval(request_id)
+    if not request:
         return None
-    return entry.get("decision")
+    return request.get("decision")
 
 
 def post_admin_decision(request_id: str, approved: bool, notes: str | None = None) -> dict[str, Any] | None:
-    entry = STORE.get(request_id)
-    if not entry:
-        return None
-
-    decision = {
-        "approved": approved,
-        "decided_at": datetime.now(timezone.utc).isoformat(),
-        "notes": notes,
-    }
-    entry["decision"] = decision
-    return decision
+    return get_persistence().set_approval_decision(
+        request_id=request_id,
+        approved=approved,
+        notes=notes,
+    )

@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 
 from mcp.server import Server
@@ -11,7 +12,7 @@ import mcp.types as types
 
 # Initialize the MCP server
 server = Server("parking-reservations")
-DATA_PATH = Path("data/reservations.txt")
+DEFAULT_DATA_PATH = Path(__file__).resolve().parents[3] / "data" / "reservations.txt"
 
 
 def append_reservation_record(
@@ -22,8 +23,9 @@ def append_reservation_record(
 ) -> None:
     """Write reservation record to file."""
     line = f"{name} | {car_number} | {reservation_period} | {approval_time}\n"
-    DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with DATA_PATH.open("a", encoding="utf-8") as handle:
+    data_path = Path(os.getenv("RESERVATIONS_FILE_PATH", str(DEFAULT_DATA_PATH)))
+    data_path.parent.mkdir(parents=True, exist_ok=True)
+    with data_path.open("a", encoding="utf-8") as handle:
         handle.write(line)
 
 
@@ -94,4 +96,3 @@ async def call_tool(
             ),
         )
     ]
-

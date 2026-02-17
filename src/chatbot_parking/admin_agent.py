@@ -107,7 +107,7 @@ def request_admin_approval(reservation: ReservationRequest) -> AdminDecision:
     Submit a reservation to the admin system (either via MCP or HTTP API when configured).
     """
     admin_url = os.getenv("ADMIN_API_URL")
-    auto_approve = os.getenv("ADMIN_AUTO_APPROVE", "true").lower() == "true"
+    auto_approve = os.getenv("ADMIN_AUTO_APPROVE", "false").lower() == "true"
     poll_interval = float(os.getenv("ADMIN_POLL_INTERVAL", "1.0"))
     poll_timeout = float(os.getenv("ADMIN_POLL_TIMEOUT", "10.0"))
 

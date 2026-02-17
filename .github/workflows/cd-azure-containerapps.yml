@@ -1,4 +1,4 @@
-name: CD Azure Container Apps
+name: CD Azure Hybrid (UI + MCP + Durable)
 
 on:
   workflow_dispatch:
@@ -14,15 +14,15 @@ env:
   RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
 
 jobs:
-  deploy:
+  deploy-containers:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          - app_name: chatbot-parking-admin
-            image_name: chatbot-parking-admin
-            command: 'uvicorn chatbot_parking.admin_api:app --host 0.0.0.0 --port 8000'
+          - app_name: chatbot-parking-ui
+            image_name: chatbot-parking-ui
+            command: 'uvicorn chatbot_parking.web_demo_server:app --host 0.0.0.0 --port 8000'
           - app_name: chatbot-parking-mcp
             image_name: chatbot-parking-mcp
             command: 'uvicorn chatbot_parking.mcp_server:app --host 0.0.0.0 --port 8001'
@@ -39,11 +39,8 @@ jobs:
           AZURE_ACR_NAME: ${{ vars.AZURE_ACR_NAME }}
           AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
         run: |
-          echo "Checking Azure configuration..."
           if [ -z "$AZURE_CLIENT_ID" ] || [ -z "$AZURE_TENANT_ID" ] || [ -z "$AZURE_SUBSCRIPTION_ID" ] || [ -z "$AZURE_ACR_NAME" ] || [ -z "$AZURE_RESOURCE_GROUP" ]; then
             echo "Azure configuration incomplete. Skipping deployment."
-            echo "TODO: Configure repo Secrets (AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID)"
-            echo "      and repo Variables (AZURE_ACR_NAME, AZURE_RESOURCE_GROUP) to enable this workflow."
             echo "has-azure=false" >> $GITHUB_OUTPUT
             exit 0
           fi
@@ -57,19 +54,19 @@ jobs:
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           AZURE_ACR_NAME: ${{ vars.AZURE_ACR_NAME }}
           AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          ADMIN_UI_TOKEN: ${{ secrets.ADMIN_UI_TOKEN }}
+          MCP_API_TOKEN: ${{ secrets.MCP_API_TOKEN }}
+          ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
         run: |
           set -e
           missing=0
-          for v in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID AZURE_ACR_NAME AZURE_RESOURCE_GROUP; do
+          for v in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID AZURE_ACR_NAME AZURE_RESOURCE_GROUP ADMIN_UI_TOKEN MCP_API_TOKEN ADMIN_API_TOKEN; do
             if [ -z "${!v}" ]; then
-              scope="Secrets"
-              if [ "$v" = "AZURE_ACR_NAME" ] || [ "$v" = "AZURE_RESOURCE_GROUP" ]; then scope="Variables"; fi
-              echo "::error::$v is not set. Configure it under Repository > Settings > $scope." >&2
+              echo "::error::$v is not set." >&2
               missing=1
             fi
           done
           if [ "$missing" -ne 0 ]; then
-            echo "One or more required values are missing; aborting before Azure login." >&2
             exit 1
           fi
 
@@ -103,5 +100,53 @@ jobs:
               APP_ENV=prod \
               MCP_API_TOKEN='${{ secrets.MCP_API_TOKEN }}' \
               ADMIN_API_TOKEN='${{ secrets.ADMIN_API_TOKEN }}' \
+              ADMIN_UI_TOKEN='${{ secrets.ADMIN_UI_TOKEN }}' \
+              MCP_TRANSPORT=stdio \
+              MCP_ALLOW_LOCAL_FALLBACK=false \
+              MCP_SERVER_COMMAND=python \
+              MCP_SERVER_ARGS='-m chatbot_parking.mcp_servers.reservations_stdio_server' \
             --command bash \
             --args -lc "${{ matrix.command }}"
+
+  deploy-durable:
+    runs-on: ubuntu-latest
+    needs: deploy-containers
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Durable config
+        id: check-durable
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_FUNCTIONAPP_NAME: ${{ vars.AZURE_FUNCTIONAPP_NAME }}
+        run: |
+          if [ -z "$AZURE_CLIENT_ID" ] || [ -z "$AZURE_TENANT_ID" ] || [ -z "$AZURE_SUBSCRIPTION_ID" ] || [ -z "$AZURE_FUNCTIONAPP_NAME" ]; then
+            echo "Durable deployment config incomplete. Skipping function deployment."
+            echo "has-durable=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          echo "has-durable=true" >> $GITHUB_OUTPUT
+
+      - name: Azure Login (OIDC)
+        if: steps.check-durable.outputs.has-durable == 'true'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          audience: api://AzureADTokenExchange
+
+      - name: Prepare function package
+        if: steps.check-durable.outputs.has-durable == 'true'
+        run: |
+          rsync -a src/ infra/azure/durable_functions/src/
+          rsync -a data/ infra/azure/durable_functions/data/
+
+      - name: Deploy Durable Function App
+        if: steps.check-durable.outputs.has-durable == 'true'
+        uses: Azure/functions-action@v1
+        with:
+          app-name: ${{ vars.AZURE_FUNCTIONAPP_NAME }}
+          package: infra/azure/durable_functions

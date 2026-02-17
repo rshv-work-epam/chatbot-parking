@@ -8,11 +8,17 @@
     "containerAppsEnvironmentName": {
       "value": "chatbot-parking-env"
     },
-    "adminContainerAppName": {
-      "value": "chatbot-parking-admin"
+    "uiContainerAppName": {
+      "value": "chatbot-parking-ui"
     },
     "mcpContainerAppName": {
       "value": "chatbot-parking-mcp"
+    },
+    "functionAppName": {
+      "value": "chatbot-parking-func"
+    },
+    "functionStorageAccountName": {
+      "value": "chatbotparkstdev"
     },
     "deployCosmosDb": {
       "value": true
@@ -23,7 +29,13 @@
     "cosmosDatabaseName": {
       "value": "chatbotParking"
     },
-    "cosmosContainerName": {
+    "cosmosThreadsContainerName": {
+      "value": "threads"
+    },
+    "cosmosApprovalsContainerName": {
+      "value": "approvals"
+    },
+    "cosmosReservationsContainerName": {
       "value": "reservations"
     }
   }

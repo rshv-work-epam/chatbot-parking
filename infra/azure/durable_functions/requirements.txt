@@ -1,3 +1,13 @@
 azure-functions
 azure-functions-durable
-chatbot-parking
+azure-cosmos>=4.7.0
+langchain>=0.2.0
+langchain-community>=0.2.0
+langchain-weaviate>=0.0.6
+langchain-openai>=0.1.0
+langgraph>=0.2.0
+pydantic>=2.0
+faiss-cpu>=1.8.0
+sentence-transformers>=2.6.0
+weaviate-client>=4.5.0
+mcp>=1.0.0

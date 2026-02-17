@@ -7,11 +7,17 @@ param acrName string
 @description('Container Apps environment name')
 param containerAppsEnvironmentName string = 'chatbot-parking-env'
 
-@description('Admin API container app name')
-param adminContainerAppName string = 'chatbot-parking-admin'
+@description('UI container app name')
+param uiContainerAppName string = 'chatbot-parking-ui'
 
 @description('MCP server container app name')
 param mcpContainerAppName string = 'chatbot-parking-mcp'
+
+@description('Function app name')
+param functionAppName string = 'chatbot-parking-func'
+
+@description('Storage account for Function App (must be globally unique)')
+param functionStorageAccountName string = 'chatbotparkst${uniqueString(resourceGroup().id)}'
 
 @description('Container CPU cores')
 param cpu string = '0.5'
@@ -28,8 +34,14 @@ param cosmosAccountName string = 'chatbotparking-cosmos-${uniqueString(resourceG
 @description('Cosmos DB SQL database name')
 param cosmosDatabaseName string = 'chatbotParking'
 
-@description('Cosmos DB SQL container name')
-param cosmosContainerName string = 'reservations'
+@description('Cosmos DB SQL container for chat threads')
+param cosmosThreadsContainerName string = 'threads'
+
+@description('Cosmos DB SQL container for admin approvals')
+param cosmosApprovalsContainerName string = 'approvals'
+
+@description('Cosmos DB SQL container for reservation records')
+param cosmosReservationsContainerName string = 'reservations'
 
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   name: 'law-${uniqueString(resourceGroup().id)}'
@@ -39,6 +51,16 @@ resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
       name: 'PerGB2018'
     }
     retentionInDays: 30
+  }
+}
+
+resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
+  name: 'appi-${uniqueString(resourceGroup().id)}'
+  location: location
+  kind: 'web'
+  properties: {
+    Application_Type: 'web'
+    WorkspaceResourceId: logAnalytics.id
   }
 }
 
@@ -99,12 +121,37 @@ resource cosmosSqlDatabase 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases@2
   }
 }
 
-resource cosmosSqlContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-05-15' = if (deployCosmosDb) {
+resource cosmosThreadsContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-05-15' = if (deployCosmosDb) {
   parent: cosmosSqlDatabase
-  name: cosmosContainerName
+  name: cosmosThreadsContainerName
   properties: {
     resource: {
-      id: cosmosContainerName
+      id: cosmosThreadsContainerName
+      partitionKey: {
+        paths: [
+          '/thread_id'
+        ]
+        kind: 'Hash'
+      }
+      indexingPolicy: {
+        indexingMode: 'consistent'
+        automatic: true
+        includedPaths: [
+          {
+            path: '/*'
+          }
+        ]
+      }
+    }
+  }
+}
+
+resource cosmosApprovalsContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-05-15' = if (deployCosmosDb) {
+  parent: cosmosSqlDatabase
+  name: cosmosApprovalsContainerName
+  properties: {
+    resource: {
+      id: cosmosApprovalsContainerName
       partitionKey: {
         paths: [
           '/request_id'
@@ -124,8 +171,121 @@ resource cosmosSqlContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/
   }
 }
 
-resource adminContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
-  name: adminContainerAppName
+resource cosmosReservationsContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-05-15' = if (deployCosmosDb) {
+  parent: cosmosSqlDatabase
+  name: cosmosReservationsContainerName
+  properties: {
+    resource: {
+      id: cosmosReservationsContainerName
+      partitionKey: {
+        paths: [
+          '/partition_key'
+        ]
+        kind: 'Hash'
+      }
+      indexingPolicy: {
+        indexingMode: 'consistent'
+        automatic: true
+        includedPaths: [
+          {
+            path: '/*'
+          }
+        ]
+      }
+    }
+  }
+}
+
+resource functionStorage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
+  name: functionStorageAccountName
+  location: location
+  sku: {
+    name: 'Standard_LRS'
+  }
+  kind: 'StorageV2'
+  properties: {
+    supportsHttpsTrafficOnly: true
+    minimumTlsVersion: 'TLS1_2'
+  }
+}
+
+resource functionPlan 'Microsoft.Web/serverfarms@2023-12-01' = {
+  name: 'asp-${functionAppName}'
+  location: location
+  sku: {
+    name: 'Y1'
+    tier: 'Dynamic'
+  }
+  kind: 'functionapp'
+  properties: {
+    reserved: true
+  }
+}
+
+resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
+  name: functionAppName
+  location: location
+  kind: 'functionapp,linux'
+  identity: {
+    type: 'SystemAssigned'
+  }
+  properties: {
+    serverFarmId: functionPlan.id
+    httpsOnly: true
+    siteConfig: {
+      linuxFxVersion: 'Python|3.11'
+      appSettings: [
+        {
+          name: 'FUNCTIONS_EXTENSION_VERSION'
+          value: '~4'
+        }
+        {
+          name: 'FUNCTIONS_WORKER_RUNTIME'
+          value: 'python'
+        }
+        {
+          name: 'AzureWebJobsStorage'
+          value: 'DefaultEndpointsProtocol=https;AccountName=${functionStorage.name};AccountKey=${functionStorage.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
+        }
+        {
+          name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+          value: appInsights.properties.ConnectionString
+        }
+        {
+          name: 'COSMOS_DB_ENDPOINT'
+          value: deployCosmosDb ? cosmosAccount.properties.documentEndpoint : ''
+        }
+        {
+          name: 'COSMOS_DB_KEY'
+          value: deployCosmosDb ? cosmosAccount.listKeys().primaryMasterKey : ''
+        }
+        {
+          name: 'COSMOS_DB_DATABASE'
+          value: deployCosmosDb ? cosmosDatabaseName : ''
+        }
+        {
+          name: 'COSMOS_DB_CONTAINER_THREADS'
+          value: deployCosmosDb ? cosmosThreadsContainerName : ''
+        }
+        {
+          name: 'COSMOS_DB_CONTAINER_APPROVALS'
+          value: deployCosmosDb ? cosmosApprovalsContainerName : ''
+        }
+        {
+          name: 'COSMOS_DB_CONTAINER_RESERVATIONS'
+          value: deployCosmosDb ? cosmosReservationsContainerName : ''
+        }
+        {
+          name: 'PERSISTENCE_BACKEND'
+          value: deployCosmosDb ? 'cosmos' : 'memory'
+        }
+      ]
+    }
+  }
+}
+
+resource uiContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
+  name: uiContainerAppName
   location: location
   identity: {
     type: 'SystemAssigned'
@@ -147,39 +307,95 @@ resource adminContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
       activeRevisionsMode: 'Single'
       secrets: [
         {
-          name: 'admin-api-token'
+          name: 'admin-ui-token'
           value: 'replace-at-deploy-time'
+        }
+        {
+          name: 'mcp-api-token'
+          value: 'replace-at-deploy-time'
+        }
+        {
+          name: 'durable-function-key'
+          value: listkeys('${functionApp.id}/host/default', '2023-12-01').functionKeys.default
+        }
+        {
+          name: 'cosmos-db-key'
+          value: deployCosmosDb ? cosmosAccount.listKeys().primaryMasterKey : ''
         }
       ]
     }
     template: {
       containers: [
         {
-          name: 'admin-api'
-          image: '${acrName}.azurecr.io/chatbot-parking-admin:latest'
+          name: 'ui-api'
+          image: '${acrName}.azurecr.io/chatbot-parking-ui:latest'
           command: [
             'bash'
           ]
           args: [
             '-lc'
-            'uvicorn chatbot_parking.admin_api:app --host 0.0.0.0 --port 8000'
+            'uvicorn chatbot_parking.web_demo_server:app --host 0.0.0.0 --port 8000'
           ]
           env: [
             {
-              name: 'ADMIN_API_TOKEN'
-              secretRef: 'admin-api-token'
+              name: 'DURABLE_BASE_URL'
+              value: 'https://${functionApp.properties.defaultHostName}'
+            }
+            {
+              name: 'DURABLE_FUNCTION_KEY'
+              secretRef: 'durable-function-key'
+            }
+            {
+              name: 'ADMIN_UI_TOKEN'
+              secretRef: 'admin-ui-token'
+            }
+            {
+              name: 'MCP_API_TOKEN'
+              secretRef: 'mcp-api-token'
             }
             {
               name: 'COSMOS_DB_ENDPOINT'
               value: deployCosmosDb ? cosmosAccount.properties.documentEndpoint : ''
             }
             {
+              name: 'COSMOS_DB_KEY'
+              secretRef: 'cosmos-db-key'
+            }
+            {
               name: 'COSMOS_DB_DATABASE'
               value: deployCosmosDb ? cosmosDatabaseName : ''
             }
             {
-              name: 'COSMOS_DB_CONTAINER'
-              value: deployCosmosDb ? cosmosContainerName : ''
+              name: 'COSMOS_DB_CONTAINER_THREADS'
+              value: deployCosmosDb ? cosmosThreadsContainerName : ''
+            }
+            {
+              name: 'COSMOS_DB_CONTAINER_APPROVALS'
+              value: deployCosmosDb ? cosmosApprovalsContainerName : ''
+            }
+            {
+              name: 'COSMOS_DB_CONTAINER_RESERVATIONS'
+              value: deployCosmosDb ? cosmosReservationsContainerName : ''
+            }
+            {
+              name: 'PERSISTENCE_BACKEND'
+              value: deployCosmosDb ? 'cosmos' : 'memory'
+            }
+            {
+              name: 'MCP_TRANSPORT'
+              value: 'stdio'
+            }
+            {
+              name: 'MCP_ALLOW_LOCAL_FALLBACK'
+              value: 'false'
+            }
+            {
+              name: 'MCP_SERVER_COMMAND'
+              value: 'python'
+            }
+            {
+              name: 'MCP_SERVER_ARGS'
+              value: '-m chatbot_parking.mcp_servers.reservations_stdio_server'
             }
           ]
           resources: {
@@ -252,18 +468,6 @@ resource mcpContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
               name: 'MCP_API_TOKEN'
               secretRef: 'mcp-api-token'
             }
-            {
-              name: 'COSMOS_DB_ENDPOINT'
-              value: deployCosmosDb ? cosmosAccount.properties.documentEndpoint : ''
-            }
-            {
-              name: 'COSMOS_DB_DATABASE'
-              value: deployCosmosDb ? cosmosDatabaseName : ''
-            }
-            {
-              name: 'COSMOS_DB_CONTAINER'
-              value: deployCosmosDb ? cosmosContainerName : ''
-            }
           ]
           resources: {
             cpu: json(cpu)
@@ -290,11 +494,11 @@ resource mcpContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
   }
 }
 
-resource acrPullForAdmin 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(adminContainerApp.id, acr.id, 'AcrPull')
+resource acrPullForUi 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(uiContainerApp.id, acr.id, 'AcrPull')
   scope: acr
   properties: {
-    principalId: adminContainerApp.identity.principalId
+    principalId: uiContainerApp.identity.principalId
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')
     principalType: 'ServicePrincipal'
   }
@@ -310,9 +514,12 @@ resource acrPullForMcp 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
 }
 
-output adminApiUrl string = 'https://${adminContainerApp.properties.configuration.ingress.fqdn}'
+output uiApiUrl string = 'https://${uiContainerApp.properties.configuration.ingress.fqdn}'
 output mcpServerUrl string = 'https://${mcpContainerApp.properties.configuration.ingress.fqdn}'
+output durableBaseUrl string = 'https://${functionApp.properties.defaultHostName}'
 output acrLoginServer string = acr.properties.loginServer
 output cosmosDbEndpoint string = deployCosmosDb ? cosmosAccount.properties.documentEndpoint : ''
 output cosmosDbDatabase string = deployCosmosDb ? cosmosDatabaseName : ''
-output cosmosDbContainer string = deployCosmosDb ? cosmosContainerName : ''
+output cosmosDbThreadsContainer string = deployCosmosDb ? cosmosThreadsContainerName : ''
+output cosmosDbApprovalsContainer string = deployCosmosDb ? cosmosApprovalsContainerName : ''
+output cosmosDbReservationsContainer string = deployCosmosDb ? cosmosReservationsContainerName : ''

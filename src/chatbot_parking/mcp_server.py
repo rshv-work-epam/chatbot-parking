@@ -10,8 +10,7 @@ from pydantic import BaseModel
 
 app = FastAPI(title="Parking MCP Server")
 
-DATA_PATH = Path("data/reservations.txt")
-API_TOKEN = os.getenv("MCP_API_TOKEN", "change-me")
+DEFAULT_DATA_PATH = Path(__file__).resolve().parents[2] / "data" / "reservations.txt"
 
 
 class ReservationRecord(BaseModel):
@@ -31,7 +30,11 @@ def record_reservation(
     record: ReservationRecord,
     x_api_token: str | None = Header(default=None),
 ) -> dict:
-    if x_api_token != API_TOKEN:
+    api_token = os.getenv("MCP_API_TOKEN")
+    if not api_token:
+        raise HTTPException(status_code=500, detail="MCP_API_TOKEN is not configured")
+
+    if x_api_token != api_token:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     approval_time = record.approval_time or datetime.now(timezone.utc).isoformat()
@@ -51,6 +54,7 @@ def append_reservation_record(
     approval_time: str,
 ) -> None:
     line = f"{name} | {car_number} | {reservation_period} | {approval_time}\n"
-    DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with DATA_PATH.open("a", encoding="utf-8") as handle:
+    data_path = Path(os.getenv("RESERVATIONS_FILE_PATH", str(DEFAULT_DATA_PATH)))
+    data_path.parent.mkdir(parents=True, exist_ok=True)
+    with data_path.open("a", encoding="utf-8") as handle:
         handle.write(line)

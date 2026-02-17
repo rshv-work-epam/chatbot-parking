@@ -11,3 +11,4 @@ sentence-transformers>=2.6.0
 weaviate-client>=4.5.0
 pytest>=8.0
 mcp>=1.0.0
+azure-cosmos>=4.7.0
