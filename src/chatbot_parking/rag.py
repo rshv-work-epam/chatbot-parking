@@ -27,7 +27,7 @@ class RetrievalResult:
 def _build_splitter(
     chunk_size: int = 300,
     chunk_overlap: int = 40,
-    splitter_type: str = "token",
+    splitter_type: str = "recursive",
 ):
     if splitter_type == "recursive":
         return RecursiveCharacterTextSplitter(
@@ -35,13 +35,15 @@ def _build_splitter(
             chunk_overlap=chunk_overlap,
             separators=["\n\n", "\n", ". ", " ", ""],
         )
-    return TokenTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    if splitter_type == "token":
+        return TokenTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    raise ValueError(f"Unsupported splitter_type: {splitter_type}")
 
 
 def _prepare_documents(
     chunk_size: int = 300,
     chunk_overlap: int = 40,
-    splitter_type: str = "token",
+    splitter_type: str = "recursive",
 ) -> list[Document]:
     splitter = _build_splitter(
         chunk_size=chunk_size,
@@ -92,7 +94,7 @@ def build_vector_store(
     insert_documents: bool = True,
     chunk_size: int = 300,
     chunk_overlap: int = 40,
-    splitter_type: str = "token",
+    splitter_type: str = "recursive",
 ):
     settings = get_settings()
     docs = _prepare_documents(

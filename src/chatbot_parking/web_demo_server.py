@@ -84,9 +84,9 @@ def chat_message(payload: ChatMessageIn):
         "thread_id": thread_id,
         "mode": result.get("mode", "info"),
     }
-    if "request_id" in result:
+    if result.get("request_id") is not None:
         response["request_id"] = result["request_id"]
-    if "status" in result:
+    if result.get("status") is not None:
         response["status"] = result["status"]
     return response
 

@@ -30,7 +30,7 @@ class InteractiveState(TypedDict, total=False):
     booking_active: bool
     pending_field: str | None
     collected: dict[str, str]
-    request_id: str
+    request_id: str | None
     status: Literal["collecting", "pending", "approved", "declined"]
 
 
@@ -62,6 +62,17 @@ def _run_turn(state: InteractiveState) -> InteractiveState:
     collected = dict(state.get("collected", {}))
     status = state.get("status")
     request_id = state.get("request_id")
+
+    if _is_booking_intent(message):
+        return {
+            "response": FIELD_PROMPTS["name"],
+            "mode": "booking",
+            "booking_active": True,
+            "pending_field": "name",
+            "collected": {},
+            "status": "collecting",
+            "request_id": None,
+        }
 
     if booking_active and status == "pending" and request_id:
         decision = get_admin_decision(request_id)
@@ -132,16 +143,6 @@ def _run_turn(state: InteractiveState) -> InteractiveState:
             "status": "pending",
         }
 
-    if _is_booking_intent(message):
-        return {
-            "response": FIELD_PROMPTS["name"],
-            "mode": "booking",
-            "booking_active": True,
-            "pending_field": "name",
-            "collected": {},
-            "status": "collecting",
-        }
-
     chatbot = ParkingChatbot()
     return {
         "response": chatbot.answer_question(message),
@@ -150,6 +151,7 @@ def _run_turn(state: InteractiveState) -> InteractiveState:
         "pending_field": None,
         "collected": {},
         "status": "collecting",
+        "request_id": None,
     }
 
 

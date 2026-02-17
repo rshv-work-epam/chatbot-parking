@@ -1,6 +1,8 @@
 from collections import Counter
 
-from chatbot_parking.rag import _prepare_documents
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+from chatbot_parking.rag import _build_splitter, _prepare_documents
 
 
 def test_chunking_adds_chunk_and_source_metadata():
@@ -18,3 +20,8 @@ def test_small_chunk_size_splits_at_least_one_source_into_multiple_chunks():
 
     counts = Counter(doc.metadata["source_id"] for doc in docs)
     assert any(count > 1 for count in counts.values())
+
+
+def test_default_splitter_is_offline_safe_recursive():
+    splitter = _build_splitter()
+    assert isinstance(splitter, RecursiveCharacterTextSplitter)
