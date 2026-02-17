@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "resourceGroupName": {
+      "value": "REPLACE_ME"
+    },
+    "functionAppName": {
+      "value": "chatbot-parking-func"
+    },
+    "budgetName": {
+      "value": "budget-autostop-10-usd"
+    },
+    "budgetAmount": {
+      "value": 10
+    },
+    "budgetStartDate": {
+      "value": "2026-02-01T00:00:00Z"
+    },
+    "contactEmails": {
+      "value": [
+        "you@example.com"
+      ]
+    },
+    "stopThresholdPercent": {
+      "value": 90
+    },
+    "hardThresholdPercent": {
+      "value": 100
+    }
+  }
+}
+

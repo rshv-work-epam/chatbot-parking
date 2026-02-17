@@ -276,6 +276,27 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
           name: 'PERSISTENCE_BACKEND'
           value: deployCosmosDb ? 'cosmos' : 'memory'
         }
+        // Budget auto-stop configuration. Used by infra/azure/durable_functions/function_app.py (route: /api/budget/stop).
+        {
+          name: 'AUTO_STOP_SUBSCRIPTION_ID'
+          value: subscription().subscriptionId
+        }
+        {
+          name: 'AUTO_STOP_RESOURCE_GROUP'
+          value: resourceGroup().name
+        }
+        {
+          name: 'AUTO_STOP_CONTAINER_APP_NAMES'
+          value: uiContainerAppName
+        }
+        {
+          name: 'AUTO_STOP_FUNCTION_APP_NAME'
+          value: functionAppName
+        }
+        {
+          name: 'AUTO_STOP_STOP_FUNCTION_APP'
+          value: 'false'
+        }
       ]
     }
   }
@@ -410,6 +431,29 @@ resource acrPullForUi 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   properties: {
     principalId: uiContainerApp.identity.principalId
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// Grant the Function App managed identity permission to stop the UI Container App (and optionally itself) when a cost budget triggers.
+var contributorRoleDefinitionId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c')
+
+resource contributorForStopOnUi 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(uiContainerApp.id, functionApp.identity.principalId, 'Contributor')
+  scope: uiContainerApp
+  properties: {
+    principalId: functionApp.identity.principalId
+    roleDefinitionId: contributorRoleDefinitionId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource contributorForStopOnFunction 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(functionApp.id, functionApp.identity.principalId, 'Contributor')
+  scope: functionApp
+  properties: {
+    principalId: functionApp.identity.principalId
+    roleDefinitionId: contributorRoleDefinitionId
     principalType: 'ServicePrincipal'
   }
 }

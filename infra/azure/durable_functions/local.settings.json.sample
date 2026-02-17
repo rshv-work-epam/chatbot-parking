@@ -9,6 +9,11 @@
     "COSMOS_DB_DATABASE": "chatbotParking",
     "COSMOS_DB_CONTAINER_THREADS": "threads",
     "COSMOS_DB_CONTAINER_APPROVALS": "approvals",
-    "COSMOS_DB_CONTAINER_RESERVATIONS": "reservations"
+    "COSMOS_DB_CONTAINER_RESERVATIONS": "reservations",
+    "AUTO_STOP_SUBSCRIPTION_ID": "",
+    "AUTO_STOP_RESOURCE_GROUP": "",
+    "AUTO_STOP_CONTAINER_APP_NAMES": "chatbot-parking-ui",
+    "AUTO_STOP_FUNCTION_APP_NAME": "chatbot-parking-func",
+    "AUTO_STOP_STOP_FUNCTION_APP": "false"
   }
 }

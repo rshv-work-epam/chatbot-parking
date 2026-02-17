@@ -37,6 +37,30 @@ Capture outputs:
 - `cosmosDbApprovalsContainer`
 - `cosmosDbReservationsContainer`
 
+## 2.1) (Optional) Budget auto-stop guardrail (best-effort)
+
+This repo includes a budget-triggered "kill switch" endpoint in the Durable Function App (`/api/budget/stop`).
+You can create a subscription-level Cost Management budget that triggers an Action Group, which calls that endpoint.
+
+Files:
+
+- Subscription-scope budget + action group: `infra/azure/subscription_budget_autostop.bicep`
+- Example parameters: `infra/azure/subscription_budget_autostop.parameters.json`
+
+Deploy at subscription scope:
+
+```bash
+az deployment sub create \
+  --location <any-azure-region> \
+  --template-file infra/azure/subscription_budget_autostop.bicep \
+  --parameters @infra/azure/subscription_budget_autostop.parameters.json
+```
+
+Notes:
+
+- This is best-effort only. Cost data and budget evaluation can lag, so it may not prevent you from exceeding $10.
+- Stopping apps reduces compute spend, but some resources still bill when "stopped" (for example: ACR SKU, storage capacity).
+
 ## 3) Configure GitHub OIDC and repository settings
 
 Secrets:

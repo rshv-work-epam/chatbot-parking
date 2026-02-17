@@ -1,6 +1,8 @@
 .venv/
+.venv*/
 __pycache__/
 *.pyc
+AWSCLIV2.pkg
 .data/
 data/
 !data/
