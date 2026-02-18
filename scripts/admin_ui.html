@@ -130,6 +130,10 @@
         return token ? { 'x-api-token': token } : {};
       }
 
+      function hasToken() {
+        return !!(localStorage.getItem(TOKEN_KEY) || '').trim();
+      }
+
       function formatDate(value) {
         if (!value) return 'n/a';
         const date = new Date(value);
@@ -145,6 +149,12 @@
 
       async function fetchPending() {
         const container = document.getElementById('pending');
+        if (!hasToken()) {
+          summary.className = 'meta';
+          summary.textContent = 'Provide admin token to view pending requests.';
+          container.textContent = '';
+          return;
+        }
         try {
           const response = await fetch('/admin/requests', {
             headers: authHeaders(),
@@ -288,7 +298,7 @@
 
       fetchPending();
       setInterval(() => {
-        if (autoRefresh.checked) {
+        if (autoRefresh.checked && hasToken()) {
           fetchPending();
         }
       }, 3000);
