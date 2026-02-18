@@ -245,7 +245,144 @@ INTENT_HUMAN_PROMPT = (
 )
 
 
+_ECHO_STATIC_TOPICS: list[tuple[str, list[str]]] = [
+    ("booking_process", ["book", "booking", "reserve", "reservation"]),
+    ("parking_overview", ["where", "location", "address", "located"]),
+    ("location_directions", ["direction", "directions", "entrance", "gate", "how to get"]),
+    ("facility_features", ["amenities", "features", "ev", "charging", "accessible", "security"]),
+    ("rules", ["rules", "rule", "arrive", "overnight", "lost ticket"]),
+    ("payments", ["payment", "pay", "card", "wallet", "kiosk"]),
+    ("faq_cancellation", ["cancel", "cancellation", "refund"]),
+    ("support_contacts", ["support", "help", "contact", "desk"]),
+]
+
+
+def _echo_is_low_signal(question: str) -> bool:
+    q = question.strip().lower()
+    if not q:
+        return True
+    if len(q) < 4:
+        return True
+
+    letters = [c for c in q if c.isalpha()]
+    if len(letters) < 3:
+        return True
+
+    tokens = q.split()
+    if len(tokens) == 1:
+        token = tokens[0]
+        token_letters = [c for c in token if c.isalpha()]
+        has_digits = any(c.isdigit() for c in token)
+        has_vowel = any(c in "aeiou" for c in token_letters)
+        if token_letters and not has_vowel and not has_digits and len(token_letters) <= 6:
+            return True
+        if token_letters and len(set(token_letters)) <= 2 and len(token_letters) <= 6:
+            return True
+
+    return False
+
+
+def _echo_wants_dynamic_info(question: str) -> bool:
+    q = question.lower()
+    dynamic_keywords = [
+        "hour",
+        "hours",
+        "open",
+        "close",
+        "price",
+        "pricing",
+        "cost",
+        "fee",
+        "rate",
+        "how much",
+        "available",
+        "availability",
+        "spaces",
+        "spots",
+        "vacant",
+        "free",
+    ]
+    return any(keyword in q for keyword in dynamic_keywords)
+
+
+def _echo_select_static_docs(question: str) -> list[str]:
+    q = question.lower()
+    selected: list[str] = []
+
+    for doc_id, keywords in _ECHO_STATIC_TOPICS:
+        if any(keyword in q for keyword in keywords):
+            selected.append(doc_id)
+
+    # Common follow-ups: "where is it" should include directions too.
+    if "parking_overview" in selected and "location_directions" not in selected:
+        selected.append("location_directions")
+
+    # Cap response length: keep at most two docs.
+    deduped: list[str] = []
+    for doc_id in selected:
+        if doc_id not in deduped:
+            deduped.append(doc_id)
+    return deduped[:2]
+
+
+def _echo_doc_text(doc_id: str) -> str | None:
+    for doc in STATIC_DOCUMENTS:
+        if doc.get("id") == doc_id:
+            text = (doc.get("text") or "").strip()
+            if not text:
+                return None
+            # Apply the same redaction logic used during ingestion.
+            return redact_sensitive(text)
+    return None
+
+
+def _echo_help(dynamic_info: str) -> str:
+    parts: list[str] = []
+    dynamic_info = dynamic_info.strip()
+    if dynamic_info:
+        parts.append(dynamic_info)
+    parts.append(
+        "I can help with parking info and bookings. Try asking:\n"
+        "- What are your working hours?\n"
+        "- How much does it cost?\n"
+        "- Where is the parking located?\n"
+        "- How do I book a spot?"
+    )
+    return "\n\n".join(parts)
+
+
+def _echo_generate_answer(question: str, context: str, dynamic_info: str) -> str:
+    # Echo mode is a no-LLM, deterministic fallback for demos and cloud setups
+    # without API keys. It should never return the unhelpful "I could not
+    # generate an answer." message.
+    question = question.strip()
+    if _echo_is_low_signal(question):
+        return _echo_help(dynamic_info)
+
+    parts: list[str] = []
+
+    if dynamic_info and _echo_wants_dynamic_info(question):
+        parts.append(dynamic_info.strip())
+
+    doc_ids = _echo_select_static_docs(question)
+    for doc_id in doc_ids:
+        text = _echo_doc_text(doc_id)
+        if text:
+            parts.append(text)
+
+    if parts:
+        return "\n\n".join(parts).strip()
+
+    # If we can't map the question to a known topic, give a concise "what I can do"
+    # response and include the current dynamic info as a useful default.
+    return _echo_help(dynamic_info)
+
+
 def generate_answer(question: str, context: str, dynamic_info: str) -> str:
+    settings = get_settings()
+    if settings.llm_provider == "echo":
+        return _echo_generate_answer(question, context, dynamic_info)
+
     prompt = ChatPromptTemplate.from_messages(
         [
             ("system", RAG_SYSTEM_PROMPT),
