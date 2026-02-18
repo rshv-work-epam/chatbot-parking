@@ -164,14 +164,13 @@ app.add_middleware(
 )
 
 if _app_env() == "prod":
-    raw_allowed = os.getenv(
-        "ALLOWED_HOSTS",
-        "localhost,127.0.0.1,*.azurecontainerapps.io",
-    )
-    allowed_hosts = [item.strip() for item in raw_allowed.split(",") if item.strip()]
-    # TrustedHostMiddleware requires a non-empty list.
-    allowed_hosts = allowed_hosts or ["*.azurecontainerapps.io"]
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
+    # NOTE: This is opt-in because some hosting platforms (including Azure Container Apps)
+    # health probes may send requests with internal Host headers. Enabling strict host
+    # validation without accounting for those can cause restart loops.
+    raw_allowed = os.getenv("ALLOWED_HOSTS", "").strip()
+    if raw_allowed:
+        allowed_hosts = [item.strip() for item in raw_allowed.split(",") if item.strip()]
+        app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
 
 PROVIDER_TITLES: dict[str, str] = {
     "google": "Google",

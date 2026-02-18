@@ -17,7 +17,8 @@ Regex detection covers:
 
 Optional ML/NER detection:
 
-- Enabled by default when the dependency is available (`GUARDRAILS_USE_ML=true`).
+- Enabled by default in **dev/local** when the dependency is available, and **disabled by default in prod**
+  to avoid cold-start model downloads (`GUARDRAILS_USE_ML=true|false`).
 - Configurable model name via `GUARDRAILS_NER_MODEL` (default: `dslim/bert-base-NER`).
 
 See `src/chatbot_parking/guardrails.py` for the exact patterns and ML settings.

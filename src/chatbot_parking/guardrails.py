@@ -61,7 +61,9 @@ def is_system_prompt_request(text: str) -> bool:
 
 @lru_cache(maxsize=1)
 def _load_ner_pipeline():
-    if os.getenv("GUARDRAILS_USE_ML", "true").lower() != "true":
+    app_env = os.getenv("APP_ENV", "dev").strip().lower() or "dev"
+    default_enabled = "false" if app_env == "prod" else "true"
+    if os.getenv("GUARDRAILS_USE_ML", default_enabled).lower() != "true":
         return None
     try:
         from transformers import pipeline

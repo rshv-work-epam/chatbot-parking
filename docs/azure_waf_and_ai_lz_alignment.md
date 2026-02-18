@@ -20,7 +20,7 @@ Implemented:
 - **Web hardening**:
   - Admin endpoints require `x-api-token` (`ADMIN_UI_TOKEN`)
   - API docs disabled in prod (`/docs`, `/redoc`, `/openapi.json` -> 404)
-  - `TrustedHostMiddleware` enabled in prod (allow-list via `ALLOWED_HOSTS`)
+  - Optional `TrustedHostMiddleware` allow-list (opt-in via `ALLOWED_HOSTS`)
   - Rate limiting in prod
   - Webhook verification (Slack anti-replay + signature; WhatsApp signature when configured)
   - Code: `src/chatbot_parking/web_demo_server.py`, `src/chatbot_parking/http_security.py`
@@ -101,4 +101,3 @@ Not implemented (enterprise scope):
 - Full “platform landing zone” with policy-as-code at scale (Azure Policy initiatives)
 - Centralized networking (hub/spoke), private DNS, private endpoints by default
 - Enterprise secret governance and rotation policies
-
