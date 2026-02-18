@@ -146,7 +146,7 @@ jobs:
           BASE_URL="https://${FQDN}"
 
           # Wait for the new revision to become ready.
-          for i in $(seq 1 30); do
+          for i in $(seq 1 60); do
             if curl -fsSL "${BASE_URL}/admin/health" >/dev/null; then
               break
             fi
@@ -154,7 +154,7 @@ jobs:
           done
 
           # Ensure we are hitting the newly deployed revision (version stamp must match git SHA).
-          for i in $(seq 1 30); do
+          for i in $(seq 1 60); do
             SHA="$(curl -fsSL "${BASE_URL}/version" | jq -r '.git_sha // empty' || true)"
             if [ "$SHA" = "${{ github.sha }}" ]; then
               break
