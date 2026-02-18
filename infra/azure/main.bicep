@@ -440,7 +440,7 @@ resource uiContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
 var cosmosSqlDataContributorRoleDefinitionId = deployCosmosDb
   ? '${cosmosAccount.id}/sqlRoleDefinitions/00000000-0000-0000-0000-000000000002'
   : ''
-var cosmosSqlDbScope = cosmosSqlDatabase.id
+var cosmosSqlDbScope = '${cosmosAccount.id}/dbs/${cosmosDatabaseName}'
 
 resource cosmosSqlRoleAssignmentUi 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments@2024-05-15' = if (deployCosmosDb) {
   name: guid(cosmosAccount.id, uiContainerApp.id, 'ui-cosmos-data-contributor')
