@@ -21,7 +21,7 @@ SENSITIVE_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"\b[\w\.-]+@[\w\.-]+\.\w+\b"),
     re.compile(r"password", re.IGNORECASE),
     # Common secrets/tokens (best-effort; may be incomplete by design).
-    re.compile(r"\bsk-[A-Za-z0-9]{20,}\b"),  # OpenAI
+    re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b"),  # OpenAI (supports new sk-proj-* keys)
     re.compile(r"\bAIza[0-9A-Za-z\-_]{35}\b"),  # Google API key
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),  # AWS access key id
     re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}\b"),  # GitHub token
