@@ -47,7 +47,7 @@ resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
     sku: {
       name: 'PerGB2018'
     }
-    retentionInDays: 30
+    retentionInDays: 7
   }
 }
 
@@ -258,6 +258,10 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
           value: deployCosmosDb ? cosmosAccount.listKeys().primaryMasterKey : ''
         }
         {
+          name: 'COSMOS_USE_MANAGED_IDENTITY'
+          value: deployCosmosDb ? 'true' : 'false'
+        }
+        {
           name: 'COSMOS_DB_DATABASE'
           value: deployCosmosDb ? cosmosDatabaseName : ''
         }
@@ -368,14 +372,18 @@ resource uiContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
               name: 'COSMOS_DB_ENDPOINT'
               value: deployCosmosDb ? cosmosAccount.properties.documentEndpoint : ''
             }
-            {
-              name: 'COSMOS_DB_KEY'
-              secretRef: 'cosmos-db-key'
-            }
-            {
-              name: 'COSMOS_DB_DATABASE'
-              value: deployCosmosDb ? cosmosDatabaseName : ''
-            }
+        {
+          name: 'COSMOS_DB_KEY'
+          secretRef: 'cosmos-db-key'
+        }
+        {
+          name: 'COSMOS_USE_MANAGED_IDENTITY'
+          value: deployCosmosDb ? 'true' : 'false'
+        }
+        {
+          name: 'COSMOS_DB_DATABASE'
+          value: deployCosmosDb ? cosmosDatabaseName : ''
+        }
             {
               name: 'COSMOS_DB_CONTAINER_THREADS'
               value: deployCosmosDb ? cosmosThreadsContainerName : ''
@@ -419,10 +427,37 @@ resource uiContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
         }
       ]
       scale: {
-        minReplicas: 1
-        maxReplicas: 3
+        minReplicas: 0
+        maxReplicas: 1
       }
     }
+  }
+}
+
+// Cosmos DB SQL RBAC: grant the system-assigned managed identities access to the database.
+// This enables COSMOS_USE_MANAGED_IDENTITY=true in the application without using Cosmos keys.
+var cosmosSqlDataContributorRoleDefinitionId = deployCosmosDb
+  ? '${cosmosAccount.id}/sqlRoleDefinitions/00000000-0000-0000-0000-000000000002'
+  : ''
+var cosmosSqlDbScope = '/dbs/${cosmosDatabaseName}'
+
+resource cosmosSqlRoleAssignmentUi 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments@2024-05-15' = if (deployCosmosDb) {
+  name: guid(cosmosAccount.id, uiContainerApp.id, 'ui-cosmos-data-contributor')
+  parent: cosmosAccount
+  properties: {
+    principalId: uiContainerApp.identity.principalId
+    roleDefinitionId: cosmosSqlDataContributorRoleDefinitionId
+    scope: cosmosSqlDbScope
+  }
+}
+
+resource cosmosSqlRoleAssignmentFunc 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments@2024-05-15' = if (deployCosmosDb) {
+  name: guid(cosmosAccount.id, functionApp.id, 'func-cosmos-data-contributor')
+  parent: cosmosAccount
+  properties: {
+    principalId: functionApp.identity.principalId
+    roleDefinitionId: cosmosSqlDataContributorRoleDefinitionId
+    scope: cosmosSqlDbScope
   }
 }
 
@@ -440,7 +475,7 @@ resource acrPullForUi 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 var contributorRoleDefinitionId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c')
 
 resource contributorForStopOnUi 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(uiContainerApp.id, functionApp.identity.principalId, 'Contributor')
+  name: guid(uiContainerApp.id, functionApp.id, 'ContributorStopUi')
   scope: uiContainerApp
   properties: {
     principalId: functionApp.identity.principalId
@@ -450,7 +485,7 @@ resource contributorForStopOnUi 'Microsoft.Authorization/roleAssignments@2022-04
 }
 
 resource contributorForStopOnFunction 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(functionApp.id, functionApp.identity.principalId, 'Contributor')
+  name: guid(functionApp.id, 'ContributorStopFunction')
   scope: functionApp
   properties: {
     principalId: functionApp.identity.principalId
