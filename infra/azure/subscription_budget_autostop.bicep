@@ -50,20 +50,13 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' existing = {
 var functionHostKey = listKeys('${functionApp.id}/host/default', '2023-12-01').functionKeys.default
 var stopFunctionUrl = 'https://${functionApp.properties.defaultHostName}/api/budget/stop?code=${functionHostKey}'
 
-resource actionGroup 'Microsoft.Insights/actionGroups@2023-01-01' = {
-  name: actionGroupName
+module actionGroup 'modules/action_group_webhook.bicep' = {
+  name: 'budgetActionGroup'
   scope: rg
-  location: 'global'
-  properties: {
-    enabled: true
-    groupShortName: actionGroupShortName
-    webhookReceivers: [
-      {
-        name: 'budgetStopWebhook'
-        serviceUri: stopFunctionUrl
-        useCommonAlertSchema: true
-      }
-    ]
+  params: {
+    actionGroupName: actionGroupName
+    actionGroupShortName: actionGroupShortName
+    webhookUrl: stopFunctionUrl
   }
 }
 
@@ -85,7 +78,7 @@ resource budget 'Microsoft.Consumption/budgets@2024-08-01' = {
         thresholdType: 'Actual'
         contactEmails: contactEmails
         contactGroups: [
-          actionGroup.id
+          actionGroup.outputs.actionGroupResourceId
         ]
       }
       'StopAt${hardThresholdPercent}Percent': {
@@ -95,7 +88,7 @@ resource budget 'Microsoft.Consumption/budgets@2024-08-01' = {
         thresholdType: 'Actual'
         contactEmails: contactEmails
         contactGroups: [
-          actionGroup.id
+          actionGroup.outputs.actionGroupResourceId
         ]
       }
     }
@@ -103,4 +96,4 @@ resource budget 'Microsoft.Consumption/budgets@2024-08-01' = {
 }
 
 output budgetResourceId string = budget.id
-output actionGroupResourceId string = actionGroup.id
+output actionGroupResourceId string = actionGroup.outputs.actionGroupResourceId
