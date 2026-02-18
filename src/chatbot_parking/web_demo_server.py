@@ -372,7 +372,16 @@ def _run_chat_turn(thread_id: str, message: str) -> dict[str, Any]:
     durable_error: str | None = None
     if os.getenv("DURABLE_BASE_URL"):
         is_booking_thread = isinstance(prior_state, dict) and prior_state.get("mode") == "booking"
-        if is_booking_thread or is_reservation_intent(message):
+        should_use_durable = False
+        if is_booking_thread:
+            should_use_durable = True
+        else:
+            try:
+                should_use_durable = chatbot.detect_intent(message) == "booking"
+            except Exception:
+                should_use_durable = is_reservation_intent(message)
+
+        if should_use_durable:
             try:
                 result = _invoke_durable_chat(message=message, thread_id=thread_id)
                 result.setdefault("thread_id", thread_id)
@@ -391,6 +400,7 @@ def _run_chat_turn(thread_id: str, message: str) -> dict[str, Any]:
         state=prior_state,
         persistence=persistence,
         answer_question=chatbot.answer_question,
+        detect_intent=chatbot.detect_intent,
         record_reservation=reservation_recorder,
     )
     persistence.upsert_thread(thread_id, next_state)

@@ -11,6 +11,8 @@ from chatbot_parking.chatbot import ParkingChatbot
 from chatbot_parking.interactive_flow import run_chat_turn
 from chatbot_parking.persistence import IN_MEMORY_PERSISTENCE
 
+CHATBOT = ParkingChatbot()
+
 
 class InteractiveState(TypedDict, total=False):
     message: str
@@ -32,12 +34,12 @@ class InteractiveState(TypedDict, total=False):
 
 
 def _run_turn(state: InteractiveState) -> InteractiveState:
-    chatbot = ParkingChatbot()
     result, next_state = run_chat_turn(
         message=state.get("message", ""),
         state=state,
         persistence=IN_MEMORY_PERSISTENCE,
-        answer_question=chatbot.answer_question,
+        answer_question=CHATBOT.answer_question,
+        detect_intent=CHATBOT.detect_intent,
     )
     return {
         **next_state,

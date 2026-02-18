@@ -21,7 +21,14 @@ from chatbot_parking.guardrails import (
     filter_sensitive,
     safe_output,
 )
-from chatbot_parking.rag import build_vector_store, classify_intent, generate_answer, retrieve
+from chatbot_parking.rag import (
+    build_vector_store,
+    classify_intent,
+    generate_answer,
+    generate_fallback_answer,
+    keyword_context,
+    retrieve,
+)
 
 
 @dataclass
@@ -40,14 +47,16 @@ class ConversationState:
 
 class ParkingChatbot:
     def __init__(self) -> None:
-        self.vector_store = build_vector_store(insert_documents=False)
+        # Avoid failing fast on startup if an embedding provider is unavailable.
+        # The chatbot can fall back to deterministic keyword-based answers.
+        try:
+            self.vector_store = build_vector_store(insert_documents=False)
+        except Exception:
+            self.vector_store = None
 
     def detect_intent(self, question: str) -> str:
         parsed = parse_structured_details(question)
         if parsed:
-            return "booking"
-
-        if is_booking_keyword_intent(question):
             return "booking"
 
         try:
@@ -56,6 +65,9 @@ class ParkingChatbot:
                 return llm_intent
         except Exception:
             pass
+
+        if is_booking_keyword_intent(question):
+            return "booking"
 
         return "info"
 
@@ -71,21 +83,36 @@ class ParkingChatbot:
             return "Sorry, I can't help with that request."
 
         dynamic = get_dynamic_info()
-        retrieval = retrieve(question, self.vector_store)
-        snippets = [doc.page_content for doc in retrieval.documents]
-        safe_snippets = filter_sensitive(snippets)
-        context = "\n".join(safe_snippets) if safe_snippets else ""
         max_context = int(os.getenv("MAX_RAG_CONTEXT_CHARS", "6000"))
+        context = ""
+        retrieval_docs = []
+
+        if self.vector_store is not None:
+            try:
+                retrieval = retrieve(question, self.vector_store)
+                retrieval_docs = list(retrieval.documents)
+                snippets = [doc.page_content for doc in retrieval_docs]
+                safe_snippets = filter_sensitive(snippets)
+                context = "\n".join(safe_snippets) if safe_snippets else ""
+            except Exception:
+                # Embeddings/vector store failed. Fall back to deterministic context.
+                context = keyword_context(question, max_chars=max_context)
+        else:
+            context = keyword_context(question, max_chars=max_context)
+
         if max_context > 0 and len(context) > max_context:
             context = context[:max_context].rstrip()
         dynamic_info = (
             f"Current availability: {dynamic.available_spaces} spaces. "
             f"Hours: {dynamic.working_hours}. Pricing: {dynamic.pricing}."
         )
-        response = generate_answer(question, context, dynamic_info)
+        try:
+            response = generate_answer(question, context, dynamic_info)
+        except Exception:
+            response = generate_fallback_answer(question, dynamic_info)
         if os.getenv("RAG_INCLUDE_SOURCES", "false").strip().lower() == "true":
             source_ids: list[str] = []
-            for doc in retrieval.documents:
+            for doc in retrieval_docs:
                 source_id = doc.metadata.get("source_id") or doc.metadata.get("id")
                 if source_id:
                     rendered = str(source_id)

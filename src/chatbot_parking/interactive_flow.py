@@ -215,6 +215,7 @@ def run_chat_turn(
     state: dict[str, Any] | None,
     persistence: Persistence,
     answer_question,
+    detect_intent: Callable[[str], str] | None = None,
     record_reservation: Callable[..., str] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     text = message.strip()
@@ -259,7 +260,17 @@ def run_chat_turn(
             next_state,
         )
 
-    if is_booking_keyword_intent(text):
+    intent: str | None = None
+    if not booking_active:
+        if detect_intent is not None:
+            try:
+                intent = detect_intent(text)
+            except Exception:
+                intent = None
+        if intent is None:
+            intent = "booking" if is_booking_keyword_intent(text) else "info"
+
+    if intent == "booking":
         next_state = _state_with(
             current,
             mode="booking",
@@ -286,6 +297,40 @@ def run_chat_turn(
         )
 
     if booking_active and status == "pending" and request_id:
+        restart_intent: str | None = None
+        if detect_intent is not None:
+            try:
+                restart_intent = detect_intent(text)
+            except Exception:
+                restart_intent = None
+        if restart_intent is None:
+            restart_intent = "booking" if is_booking_keyword_intent(text) else "info"
+        if restart_intent == "booking":
+            next_state = _state_with(
+                current,
+                mode="booking",
+                booking_active=True,
+                pending_field="name",
+                collected={},
+                request_id=None,
+                status="collecting",
+                recorded=False,
+                mcp_recorded=False,
+                decided_at=None,
+            )
+            return (
+                _booking_response(
+                    response=FIELD_PROMPTS["name"],
+                    status="collecting",
+                    pending_field="name",
+                    collected={},
+                    action_required="input",
+                    recorded=False,
+                    mcp_recorded=False,
+                ),
+                next_state,
+            )
+
         approval = persistence.get_approval(request_id)
         decision = approval.get("decision") if approval else None
 

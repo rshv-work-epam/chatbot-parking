@@ -155,7 +155,10 @@ class EchoLLM(LLM):
 
     def _call(self, prompt: str, stop: list[str] | None = None) -> str:
         response = prompt.split("Answer:")[-1].strip()
-        return response or "I could not generate an answer."
+        return (
+            response
+            or "I can help with parking info and bookings. Ask about hours/prices/location, or say 'I want to reserve a spot'."
+        )
 
     @property
     def _llm_type(self) -> str:
@@ -376,6 +379,31 @@ def _echo_generate_answer(question: str, context: str, dynamic_info: str) -> str
     # If we can't map the question to a known topic, give a concise "what I can do"
     # response and include the current dynamic info as a useful default.
     return _echo_help(dynamic_info)
+
+
+def keyword_context(question: str, *, max_chars: int = 6000) -> str:
+    """Build a deterministic context snippet from static docs without embeddings.
+
+    This is a fallback path for cases where vector retrieval is unavailable
+    (for example: embedding provider quota or missing API keys).
+    """
+
+    doc_ids = _echo_select_static_docs(question)
+    parts: list[str] = []
+    for doc_id in doc_ids:
+        text = _echo_doc_text(doc_id)
+        if text:
+            parts.append(text)
+    context = "\n\n".join(parts).strip()
+    if max_chars > 0 and len(context) > max_chars:
+        context = context[:max_chars].rstrip()
+    return context
+
+
+def generate_fallback_answer(question: str, dynamic_info: str) -> str:
+    """Deterministic fallback answer that does not require an LLM provider."""
+
+    return _echo_generate_answer(question, context="", dynamic_info=dynamic_info)
 
 
 def generate_answer(question: str, context: str, dynamic_info: str) -> str:
