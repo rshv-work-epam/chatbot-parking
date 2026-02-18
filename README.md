@@ -15,15 +15,29 @@ This repo shows how to build that system with modern AI building blocks.
 
 ## Architecture At A Glance
 
+### Local / Single-Process Demo
+
+```mermaid
+flowchart LR
+  User["User"] --> UI["FastAPI UI/API service\n(/chat/ui, /admin/ui, /chat/message)"]
+  UI --> RAG["RAG + Booking Workflow\n(LangChain + LangGraph)"]
+  RAG --> Admin["Admin approvals\n(/admin/*)"]
+  RAG --> MCP["MCP tool call (stdio)\nrecord_reservation"]
+  MCP --> File["reservations.txt"]
+  RAG --> VS["Vector store\n(FAISS demo / Weaviate optional)"]
+  RAG --> DB["Dynamic data\n(SQLite demo)"]
 ```
-User → RAG Chatbot (LangChain) → Collect Details → Admin Approval (human-in-the-loop)
-	│            │                               │
-	│         Vector DB (Weaviate)               └── Approve/Decline via Web UI
-	│                                                (FastAPI server)
-	└──────────────────────────────────────────────────────────────→ If Approved
-																						  ↓
-																			MCP Server writes record
-																			data/reservations.txt
+
+### Azure (Hybrid)
+
+```mermaid
+flowchart LR
+  User["User"] --> CA["Azure Container App: UI/API\nchatbot-parking-ui"]
+  CA --> DF["Azure Durable Functions\nchatbot-parking-func"]
+  CA --> Cosmos["Cosmos DB (SQL API)\nthreads + approvals + reservations"]
+  DF --> Cosmos
+  CA --> MCP["In-container MCP stdio tool server\nrecord_reservation"]
+  DF --> ARM["Budget kill switch\nPOST /api/budget/stop"]
 ```
 
 Key components:
@@ -33,6 +47,20 @@ Key components:
 - Human‑in‑the‑loop admin approvals (FastAPI API + simple Web UI)
 - MCP stdio server for standardized reservation recording tool calls
 - LangGraph to orchestrate the full workflow
+
+## Live Azure Demo (If Deployed)
+
+The UI service serves:
+
+- Prompt UI: `/chat/ui`
+- Admin UI: `/admin/ui`
+- Version stamp: `/version`
+
+To print the live URLs after deployment:
+
+```bash
+bash scripts/azure/inventory.sh rg-chatbot-parking-v2
+```
 
 ## Quick Start (Demo Mode)
 
@@ -125,7 +153,7 @@ python data/ingest.py
 ## Running the Admin UI/API (Recommended)
 
 ```bash
-export ADMIN_UI_TOKEN=change-me
+export ADMIN_UI_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
 uvicorn chatbot_parking.web_demo_server:app --reload
 ```
 
@@ -204,10 +232,12 @@ This repo is not a full enterprise landing zone, but the Azure deployment follow
 - Secrets handled as Azure Container Apps secrets (no plaintext tokens in image layers)
 - Budget alert + “kill switch” hook (best-effort cost guardrail)
 
+More details: `docs/azure_waf_and_ai_lz_alignment.md`.
+
 Recommended production follow-ups (not fully implemented here):
 
 - Front Door + WAF in front of the UI/API (bot protection, global edge, DDoS posture)
-- Key Vault + Managed Identity for secrets and Cosmos access (`COSMOS_USE_MANAGED_IDENTITY=true`)
+- Key Vault for secret governance/rotation (Cosmos access already supports Managed Identity via `COSMOS_USE_MANAGED_IDENTITY=true`)
 - Private networking (VNet integration + Private Endpoints) for Cosmos/Storage where required
 - API Management for auth, throttling, and request validation at the edge
 - Dependency scanning and image vulnerability scanning in CI/CD

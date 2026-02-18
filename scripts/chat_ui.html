@@ -195,6 +195,8 @@
           <span id="status-chip" class="status-chip">Info mode</span>
         </div>
 
+        <div id="build-info" class="auth-status" style="margin-bottom:10px;">Build: loading...</div>
+
         <p><a href="/admin/ui">Open Admin Approval UI</a></p>
 
         <div class="auth-panel">
@@ -242,6 +244,7 @@
       const errorBanner = document.getElementById('error-banner');
       const errorText = document.getElementById('error-text');
       const retryBtn = document.getElementById('retry-btn');
+      const buildInfo = document.getElementById('build-info');
       const authStatus = document.getElementById('auth-status');
       const authActions = document.getElementById('auth-actions');
       const dictateBtn = document.getElementById('dictate-btn');
@@ -656,6 +659,21 @@
       initDictation().catch(() => {
         dictateBtn.style.display = 'none';
       });
+      fetch('/version')
+        .then((resp) => readResponsePayload(resp))
+        .then((data) => {
+          const sha = (data?.git_sha || '').toString().slice(0, 12);
+          const when = (data?.build_time || '').toString();
+          const env = (data?.app_env || '').toString();
+          const parts = [];
+          if (sha) parts.push(`sha ${sha}`);
+          if (when) parts.push(when);
+          if (env) parts.push(env);
+          buildInfo.textContent = parts.length ? `Build: ${parts.join(' | ')}` : 'Build: unknown';
+        })
+        .catch(() => {
+          buildInfo.textContent = 'Build: unavailable';
+        });
       loadAuthState().catch(() => {
         authStatus.textContent = 'Auth status is currently unavailable.';
       });

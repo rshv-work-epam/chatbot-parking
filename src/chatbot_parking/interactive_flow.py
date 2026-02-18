@@ -122,10 +122,21 @@ def _is_cancel_command(text: str) -> bool:
 
 def _extract_edit_field(text: str) -> str | None:
     lowered = text.strip().lower()
-    match = re.match(r"^(?:edit|change|update|correct)\s+([a-z_ ]+)$", lowered)
-    if not match:
+    if not lowered:
         return None
-    raw = match.group(1).strip().replace(" ", "_")
+    parts = lowered.split()
+    if len(parts) < 2:
+        return None
+    if parts[0] not in {"edit", "change", "update", "correct"}:
+        return None
+
+    # Avoid regex-based parsing here to prevent potential ReDoS on untrusted input.
+    raw = " ".join(parts[1:]).strip().replace(" ", "_")
+    if not raw or len(raw) > 50:
+        return None
+    allowed = set("abcdefghijklmnopqrstuvwxyz_")
+    if any(ch not in allowed for ch in raw):
+        return None
     aliases = {
         "name": "name",
         "surname": "surname",

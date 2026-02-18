@@ -395,6 +395,19 @@ def generate_answer(question: str, context: str, dynamic_info: str) -> str:
 
 def classify_intent(question: str) -> str:
     """Classify user intent as `booking` or `info` using the configured LLM."""
+    settings = get_settings()
+    if settings.llm_provider == "echo":
+        lowered = question.lower()
+        booking_keywords = [
+            "book",
+            "booking",
+            "reserve",
+            "reservation",
+            "spot",
+            "place",
+        ]
+        return "booking" if any(word in lowered for word in booking_keywords) else "info"
+
     prompt = ChatPromptTemplate.from_messages(
         [
             ("system", INTENT_SYSTEM_PROMPT),

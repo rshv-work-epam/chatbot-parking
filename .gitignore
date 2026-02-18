@@ -12,3 +12,7 @@ data/
 # Generated during GitHub Actions durable packaging step (rsync from repo root).
 infra/azure/durable_functions/src/
 infra/azure/durable_functions/data/
+
+# Local bicep build artifacts
+infra/azure/main.json
+infra/azure/subscription_budget_autostop.json

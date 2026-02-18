@@ -2,6 +2,9 @@ from fastapi.testclient import TestClient
 
 from chatbot_parking import web_demo_server
 from chatbot_parking.persistence import InMemoryPersistence
+import hashlib
+import hmac
+import json as jsonlib
 
 
 client = TestClient(web_demo_server.app)
@@ -69,3 +72,51 @@ def test_thread_id_length_limits(monkeypatch) -> None:
 
     response = client.post("/chat/message", json={"message": "hi", "thread_id": "123456"})
     assert response.status_code == 413
+
+
+def test_version_endpoint(monkeypatch) -> None:
+    monkeypatch.setenv("BUILD_SHA", "abc123")
+    monkeypatch.setenv("BUILD_TIME", "2026-02-18T00:00:00Z")
+    monkeypatch.setenv("APP_ENV", "prod")
+
+    resp = client.get("/version")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["git_sha"] == "abc123"
+    assert data["build_time"] == "2026-02-18T00:00:00Z"
+    assert data["app_env"] == "prod"
+
+
+def test_docs_disabled_in_prod(monkeypatch) -> None:
+    monkeypatch.setenv("APP_ENV", "prod")
+
+    resp = client.get("/docs")
+    assert resp.status_code == 404
+
+
+def test_whatsapp_webhook_signature_required_when_secret_set(monkeypatch) -> None:
+    monkeypatch.setenv("WHATSAPP_APP_SECRET", "app-secret")
+
+    payload = {"entry": []}
+    body = jsonlib.dumps(payload).encode("utf-8")
+
+    invalid = client.post(
+        "/channels/whatsapp/webhook",
+        data=body,
+        headers={
+            "content-type": "application/json",
+            "x-hub-signature-256": "sha256=deadbeef",
+        },
+    )
+    assert invalid.status_code == 401
+
+    digest = hmac.new(b"app-secret", body, hashlib.sha256).hexdigest()
+    valid = client.post(
+        "/channels/whatsapp/webhook",
+        data=body,
+        headers={
+            "content-type": "application/json",
+            "x-hub-signature-256": f"sha256={digest}",
+        },
+    )
+    assert valid.status_code == 200

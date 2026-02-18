@@ -17,6 +17,7 @@ from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Reques
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 try:
     from authlib.integrations.starlette_client import OAuth
@@ -39,11 +40,23 @@ from chatbot_parking.persistence import get_persistence
 app = FastAPI(title="Parking Chat + Admin UI")
 chatbot = ParkingChatbot()
 
+def _app_env() -> str:
+    return os.getenv("APP_ENV", "dev").strip().lower() or "dev"
+
+
 @app.middleware("http")
 async def _security_headers_middleware(req: Request, call_next):
     resp = await call_next(req)
     apply_security_headers(req, resp)
     return resp
+
+
+@app.middleware("http")
+async def _block_docs_in_prod(req: Request, call_next):
+    # Avoid exposing interactive API docs for a public endpoint in production.
+    if _app_env() == "prod" and req.url.path in {"/docs", "/redoc", "/openapi.json"}:
+        return JSONResponse(status_code=404, content={"detail": "Not found"})
+    return await call_next(req)
 
 def _mcp_recording_enabled() -> bool:
     return os.getenv("MCP_RECORD_RESERVATIONS", "true").strip().lower() in {"1", "true", "yes", "on"}
@@ -131,14 +144,34 @@ def _resolve_ui_dir() -> Path:
 
 UI_DIR = _resolve_ui_dir()
 
-SESSION_SECRET = os.getenv("SESSION_SECRET_KEY") or os.getenv("ADMIN_UI_TOKEN") or "dev-session-secret"
-SESSION_HTTPS_ONLY = os.getenv("SESSION_HTTPS_ONLY", "false").strip().lower() == "true"
+SESSION_SECRET = os.getenv("SESSION_SECRET_KEY")
+if not SESSION_SECRET:
+    if _app_env() == "prod":
+        raise RuntimeError("SESSION_SECRET_KEY must be set when APP_ENV=prod")
+    SESSION_SECRET = "dev-session-secret"
+
+raw_https_only = os.getenv("SESSION_HTTPS_ONLY")
+if raw_https_only is None:
+    SESSION_HTTPS_ONLY = _app_env() == "prod"
+else:
+    SESSION_HTTPS_ONLY = raw_https_only.strip().lower() in {"1", "true", "yes", "on"}
+
 app.add_middleware(
     SessionMiddleware,
     secret_key=SESSION_SECRET,
     same_site="lax",
     https_only=SESSION_HTTPS_ONLY,
 )
+
+if _app_env() == "prod":
+    raw_allowed = os.getenv(
+        "ALLOWED_HOSTS",
+        "localhost,127.0.0.1,*.azurecontainerapps.io",
+    )
+    allowed_hosts = [item.strip() for item in raw_allowed.split(",") if item.strip()]
+    # TrustedHostMiddleware requires a non-empty list.
+    allowed_hosts = allowed_hosts or ["*.azurecontainerapps.io"]
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
 
 PROVIDER_TITLES: dict[str, str] = {
     "google": "Google",
@@ -394,7 +427,15 @@ def _validate_slack_signature(raw_body: bytes, req: Request) -> bool:
     if not timestamp or not signature:
         return False
 
-    base = f"v0:{timestamp}:{raw_body.decode('utf-8')}".encode("utf-8")
+    # Basic anti-replay: reject stale requests (Slack recommends 5 minutes).
+    try:
+        ts_int = int(timestamp)
+    except Exception:
+        return False
+    if abs(int(time.time()) - ts_int) > 60 * 5:
+        return False
+
+    base = b"v0:" + timestamp.encode("utf-8") + b":" + raw_body
     digest = hmac.new(signing_secret.encode("utf-8"), base, hashlib.sha256).hexdigest()
     expected = f"v0={digest}"
     return hmac.compare_digest(expected, signature)
@@ -443,6 +484,15 @@ async def handle_unexpected_exception(_req: Request, _exc: Exception):
 @app.get("/admin/health")
 def admin_health() -> dict:
     return {"status": "ok", "service": "ui_admin_api"}
+
+@app.get("/version")
+def version() -> dict[str, str | None]:
+    """Return build metadata for deployment verification."""
+    return {
+        "git_sha": os.getenv("BUILD_SHA"),
+        "build_time": os.getenv("BUILD_TIME"),
+        "app_env": os.getenv("APP_ENV", "dev").strip().lower() or "dev",
+    }
 
 def _speech_dictation_enabled() -> bool:
     if os.getenv("SPEECH_DICTATION_ENABLED", "true").strip().lower() not in {"1", "true", "yes", "on"}:
@@ -829,8 +879,31 @@ def whatsapp_verify(
     raise HTTPException(status_code=403, detail="Invalid WhatsApp verify token")
 
 
+def _validate_whatsapp_signature(raw_body: bytes, req: Request) -> bool:
+    app_secret = os.getenv("WHATSAPP_APP_SECRET")
+    if not app_secret:
+        return True
+
+    signature = (req.headers.get("x-hub-signature-256") or "").strip()
+    if not signature:
+        return False
+    expected = "sha256=" + hmac.new(app_secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature)
+
+
 @app.post("/channels/whatsapp/webhook")
-def whatsapp_webhook(payload: dict[str, Any]):
+async def whatsapp_webhook(req: Request):
+    enforce_rate_limit(req, scope="channel")
+    raw_body = await req.body()
+    if not _validate_whatsapp_signature(raw_body, req):
+        raise HTTPException(status_code=401, detail="Invalid WhatsApp signature")
+
+    payload = {}
+    try:
+        payload = json.loads(raw_body.decode("utf-8") or "{}")
+    except Exception:
+        payload = {}
+
     entries = payload.get("entry") or []
     if not entries:
         return {"ok": True}
