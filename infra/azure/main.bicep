@@ -47,7 +47,8 @@ resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
     sku: {
       name: 'PerGB2018'
     }
-    retentionInDays: 7
+    // NOTE: Log Analytics paid workspaces typically have a 30-day minimum retention.
+    retentionInDays: 30
   }
 }
 
@@ -439,7 +440,7 @@ resource uiContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
 var cosmosSqlDataContributorRoleDefinitionId = deployCosmosDb
   ? '${cosmosAccount.id}/sqlRoleDefinitions/00000000-0000-0000-0000-000000000002'
   : ''
-var cosmosSqlDbScope = '/dbs/${cosmosDatabaseName}'
+var cosmosSqlDbScope = cosmosSqlDatabase.id
 
 resource cosmosSqlRoleAssignmentUi 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments@2024-05-15' = if (deployCosmosDb) {
   name: guid(cosmosAccount.id, uiContainerApp.id, 'ui-cosmos-data-contributor')
