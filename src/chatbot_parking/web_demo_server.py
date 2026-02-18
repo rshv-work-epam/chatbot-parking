@@ -6,13 +6,14 @@ from pathlib import Path
 import hmac
 import hashlib
 import os
+import tempfile
 import time
 from typing import Any, Optional
 from urllib import request
 from uuid import uuid4
 import json
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
@@ -442,6 +443,73 @@ async def handle_unexpected_exception(_req: Request, _exc: Exception):
 @app.get("/admin/health")
 def admin_health() -> dict:
     return {"status": "ok", "service": "ui_admin_api"}
+
+def _speech_dictation_enabled() -> bool:
+    if os.getenv("SPEECH_DICTATION_ENABLED", "true").strip().lower() not in {"1", "true", "yes", "on"}:
+        return False
+    return bool(os.getenv("OPENAI_API_KEY"))
+
+
+@app.get("/speech/enabled")
+def speech_enabled() -> dict[str, Any]:
+    """Return whether server-side dictation is available."""
+    enabled = _speech_dictation_enabled()
+    return {"enabled": enabled, "provider": "openai" if enabled else None}
+
+
+def _transcribe_audio_openai(*, audio_bytes: bytes, filename: str, content_type: str | None) -> str:
+    try:
+        from openai import OpenAI
+    except Exception as exc:  # pragma: no cover - optional runtime dependency
+        raise RuntimeError("OpenAI client library is not installed") from exc
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not configured")
+
+    model = os.getenv("SPEECH_TRANSCRIBE_MODEL", "whisper-1")
+
+    suffix = Path(filename).suffix or ".webm"
+    with tempfile.NamedTemporaryFile(suffix=suffix) as tmp:
+        tmp.write(audio_bytes)
+        tmp.flush()
+        client = OpenAI(api_key=api_key)
+        with open(tmp.name, "rb") as handle:
+            result = client.audio.transcriptions.create(model=model, file=handle)
+    text = getattr(result, "text", None)
+    if text is None and isinstance(result, dict):
+        text = result.get("text")
+    return str(text or "").strip()
+
+
+@app.post("/speech/transcribe")
+async def speech_transcribe(req: Request, file: UploadFile = File(...)) -> dict[str, str]:
+    """Transcribe a short audio clip into text (used by the UI dictation button)."""
+    enforce_rate_limit(req, scope="speech")
+    if not _speech_dictation_enabled():
+        raise HTTPException(status_code=503, detail="Speech transcription is not configured")
+
+    content_type = (file.content_type or "").strip().lower()
+    if content_type and not (content_type.startswith("audio/") or content_type.startswith("video/")):
+        raise HTTPException(status_code=415, detail="Unsupported media type")
+
+    max_bytes = int(os.getenv("SPEECH_MAX_AUDIO_BYTES", "8000000"))  # 8 MB
+    audio_bytes = await file.read()
+    if max_bytes > 0 and len(audio_bytes) > max_bytes:
+        raise HTTPException(status_code=413, detail=f"Audio file is too large (max {max_bytes} bytes)")
+
+    try:
+        text = _transcribe_audio_openai(
+            audio_bytes=audio_bytes,
+            filename=file.filename or "dictation.webm",
+            content_type=content_type or None,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Transcription failed: {exc}") from exc
+
+    if not text:
+        raise HTTPException(status_code=422, detail="No speech detected")
+    return {"text": text}
 
 
 @app.get("/auth/providers")

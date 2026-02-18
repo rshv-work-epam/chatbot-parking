@@ -249,15 +249,30 @@
       let lastMessageForRetry = null;
       let currentThreadStorageKey = THREAD_ID_KEY;
       let isDictating = false;
+      let isTranscribing = false;
       let speechRecognition = null;
+      let mediaRecorder = null;
+      let mediaStream = null;
+      let mediaChunks = [];
+      let dictationMode = null; // server | browser
+      let statusDetailBackup = null;
 
-      function initDictation() {
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SpeechRecognition) {
-          dictateBtn.style.display = 'none';
-          return;
+      async function isServerDictationEnabled() {
+        try {
+          const resp = await fetch('/speech/enabled');
+          if (!resp.ok) return false;
+          const data = await resp.json();
+          return !!data?.enabled;
+        } catch (_error) {
+          return false;
         }
+      }
 
+      function initBrowserDictation() {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) return false;
+
+        dictationMode = 'browser';
         speechRecognition = new SpeechRecognition();
         speechRecognition.continuous = false;
         speechRecognition.interimResults = false;
@@ -267,6 +282,7 @@
           isDictating = true;
           dictateBtn.textContent = 'Stop';
           dictateBtn.setAttribute('aria-pressed', 'true');
+          statusDetailBackup = statusDetail.textContent;
           statusDetail.textContent = 'Listening...';
         });
 
@@ -274,6 +290,10 @@
           isDictating = false;
           dictateBtn.textContent = 'Dictate';
           dictateBtn.setAttribute('aria-pressed', 'false');
+          if (statusDetailBackup !== null) {
+            statusDetail.textContent = statusDetailBackup;
+            statusDetailBackup = null;
+          }
         });
 
         speechRecognition.addEventListener('result', (event) => {
@@ -302,6 +322,130 @@
             showError(`Dictation error: ${error.message}`);
           }
         });
+        return true;
+      }
+
+      function initServerDictation() {
+        if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+          return false;
+        }
+
+        dictationMode = 'server';
+
+        function stopTracks() {
+          if (!mediaStream) return;
+          try {
+            mediaStream.getTracks().forEach((track) => track.stop());
+          } catch (_error) {}
+          mediaStream = null;
+        }
+
+        async function transcribeBlob(blob) {
+          const formData = new FormData();
+          formData.append('file', blob, 'dictation.webm');
+
+          const resp = await fetch('/speech/transcribe', {
+            method: 'POST',
+            body: formData,
+          });
+          const data = await readResponsePayload(resp);
+          if (!resp.ok) {
+            const detail = data?.detail || 'Request failed';
+            throw new Error(detail);
+          }
+          return (data?.text || '').trim();
+        }
+
+        dictateBtn.addEventListener('click', async () => {
+          hideError();
+          if (isTranscribing) return;
+
+          if (mediaRecorder && mediaRecorder.state === 'recording') {
+            try {
+              mediaRecorder.stop();
+            } catch (_error) {}
+            return;
+          }
+
+          try {
+            mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          } catch (error) {
+            showError(`Microphone permission denied: ${error.message}`);
+            return;
+          }
+
+          mediaChunks = [];
+          const preferredTypes = ['audio/webm;codecs=opus', 'audio/webm'];
+          const mimeType = preferredTypes.find((t) => MediaRecorder.isTypeSupported(t)) || '';
+
+          try {
+            mediaRecorder = new MediaRecorder(mediaStream, mimeType ? { mimeType } : undefined);
+          } catch (error) {
+            stopTracks();
+            showError(`Dictation error: ${error.message}`);
+            return;
+          }
+
+          mediaRecorder.addEventListener('dataavailable', (event) => {
+            if (event?.data?.size) mediaChunks.push(event.data);
+          });
+
+          mediaRecorder.addEventListener('start', () => {
+            isDictating = true;
+            dictateBtn.textContent = 'Stop';
+            dictateBtn.setAttribute('aria-pressed', 'true');
+            statusDetailBackup = statusDetail.textContent;
+            statusDetail.textContent = 'Listening...';
+          });
+
+          mediaRecorder.addEventListener('stop', async () => {
+            isDictating = false;
+            isTranscribing = true;
+            dictateBtn.textContent = 'Transcribing...';
+            dictateBtn.setAttribute('aria-pressed', 'false');
+            dictateBtn.disabled = true;
+            statusDetail.textContent = 'Transcribing...';
+
+            const blob = new Blob(mediaChunks, { type: mimeType || 'audio/webm' });
+            stopTracks();
+
+            try {
+              const transcript = await transcribeBlob(blob);
+              if (transcript) {
+                input.value = `${(input.value || '').trim()}${input.value.trim() ? ' ' : ''}${transcript}`.trim();
+                input.focus();
+              }
+            } catch (error) {
+              showError(`Dictation error: ${error.message}`);
+            } finally {
+              isTranscribing = false;
+              dictateBtn.disabled = false;
+              dictateBtn.textContent = 'Dictate';
+              if (statusDetailBackup !== null) {
+                statusDetail.textContent = statusDetailBackup;
+                statusDetailBackup = null;
+              }
+            }
+          });
+
+          try {
+            mediaRecorder.start();
+          } catch (error) {
+            stopTracks();
+            showError(`Dictation error: ${error.message}`);
+          }
+        });
+        return true;
+      }
+
+      async function initDictation() {
+        // Prefer server-side dictation (OpenAI transcription) when available.
+        const canRecord = !!(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
+        if (canRecord && await isServerDictationEnabled()) {
+          if (initServerDictation()) return;
+        }
+        if (initBrowserDictation()) return;
+        dictateBtn.style.display = 'none';
       }
 
       function generateThreadId() {
@@ -509,7 +653,9 @@
       append('bot', 'Hello! Ask for parking info or start a booking request.');
       setProgress(null, 'Ask a question or start a booking.');
       setChip('info', 'collecting', 'Info mode');
-      initDictation();
+      initDictation().catch(() => {
+        dictateBtn.style.display = 'none';
+      });
       loadAuthState().catch(() => {
         authStatus.textContent = 'Auth status is currently unavailable.';
       });
