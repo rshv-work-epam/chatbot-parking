@@ -139,8 +139,6 @@ jobs:
 
       - name: Smoke test deployed UI + booking flow
         if: steps.check-azure.outputs.has-azure == 'true'
-        env:
-          ADMIN_UI_TOKEN: ${{ secrets.ADMIN_UI_TOKEN }}
         run: |
           FQDN="$(az containerapp show --resource-group "$RESOURCE_GROUP" --name "${{ matrix.app_name }}" --query 'properties.configuration.ingress.fqdn' -o tsv)"
           BASE_URL="https://${FQDN}"
@@ -153,7 +151,13 @@ jobs:
             sleep 5
           done
 
-          BASE_URL="$BASE_URL" ADMIN_TOKEN="$ADMIN_UI_TOKEN" ./scripts/smoke_test_cloud.sh
+          ADMIN_TOKEN="$(az containerapp secret list -g "$RESOURCE_GROUP" -n "${{ matrix.app_name }}" --show-values --query \"[?name=='admin-ui-token'].value\" -o tsv)"
+          if [ -z "$ADMIN_TOKEN" ]; then
+            echo "::error::Unable to retrieve admin-ui-token from Container App secrets" >&2
+            exit 1
+          fi
+
+          BASE_URL="$BASE_URL" ADMIN_TOKEN="$ADMIN_TOKEN" ./scripts/smoke_test_cloud.sh
 
   deploy-durable:
     runs-on: ubuntu-latest
