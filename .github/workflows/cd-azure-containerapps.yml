@@ -28,7 +28,7 @@ jobs:
             image_name: chatbot-parking-ui
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Check Azure configuration
         id: check-azure
@@ -197,7 +197,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: deploy-containers
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Check Durable config
         id: check-durable
