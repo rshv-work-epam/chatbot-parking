@@ -1,145 +1,155 @@
-# Production Readiness (Azure Hybrid: Container Apps + Durable Functions)
+# Production Deployment Runbook (Azure Hybrid: Container Apps + Durable Functions)
 
-This guide documents a production-oriented deployment for the parking chatbot on Azure using GitHub Actions.
+This repo deploys a portfolio-ready hybrid architecture on Azure:
 
-## What is deployed
+- **UI/API (Container App)** serves `/chat/ui`, `/admin/ui`, and `/chat/message`.
+- **Durable Functions** runs the booking workflow turn as an activity.
+- **Cosmos DB (SQL API)** persists threads + approvals + reservations (no in-memory loss).
+- **MCP stdio tool server** records approved reservations (stdio transport inside the UI container).
+- **Cost controls** include a `$10` budget + best-effort stop endpoint.
 
-- **UI/API Container App** (`chatbot-parking-ui`): serves `/chat/ui`, `/admin/ui`, `/chat/message`, and `/admin/*`.
-- **Durable Function App**: executes chat turns via `POST /api/chat/start`.
-- **Cosmos DB SQL API (serverless)**: stores thread state, approval requests/decisions, reservation records.
-- **ACR + Container Apps Environment + Log Analytics + App Insights**.
+## Prerequisites (Local Machine)
 
-## 1) Prerequisites
+- `az` (Azure CLI) with Bicep support: `az bicep version`
+- `gh` (GitHub CLI): `gh auth status`
+- `jq` (used by `scripts/smoke_test_cloud.sh`)
+- Python `3.12` for local tests (optional for deploy-only)
 
-- Azure subscription and resource group.
-- GitHub repository with Actions enabled.
-- Azure CLI (`az`) with Bicep support.
+## 1) Provision Azure Infrastructure (IaC)
 
-## 2) Provision infrastructure
+Create a resource group (example):
 
-Deploy IaC from `infra/azure/main.bicep`:
+```bash
+az group create -n rg-chatbot-parking-v2 -l eastus
+```
+
+Deploy `infra/azure/main.bicep`:
 
 ```bash
 az deployment group create \
-  --resource-group <resource-group> \
+  --resource-group rg-chatbot-parking-v2 \
   --template-file infra/azure/main.bicep \
   --parameters @infra/azure/main.parameters.json
 ```
 
-Capture outputs:
+Verify endpoints and the resource inventory:
 
-- `uiApiUrl`
-- `durableBaseUrl`
-- `acrLoginServer`
-- `cosmosDbEndpoint`
-- `cosmosDbDatabase`
-- `cosmosDbThreadsContainer`
-- `cosmosDbApprovalsContainer`
-- `cosmosDbReservationsContainer`
+```bash
+bash scripts/azure/inventory.sh rg-chatbot-parking-v2
+```
 
-## 2.1) (Optional) Budget auto-stop guardrail (best-effort)
+## 2) (Optional) Budget Auto-Stop Guardrail ($10)
 
-This repo includes a budget-triggered "kill switch" endpoint in the Durable Function App (`/api/budget/stop`).
-You can create a subscription-level Cost Management budget that triggers an Action Group, which calls that endpoint.
+This repo includes a subscription-level budget that triggers an Action Group webhook which calls:
+- Durable Function endpoint: `POST /api/budget/stop`
 
-Files:
-
-- Subscription-scope budget + action group: `infra/azure/subscription_budget_autostop.bicep`
-- Example parameters: `infra/azure/subscription_budget_autostop.parameters.json`
-
-Deploy at subscription scope:
+Deploy:
 
 ```bash
 az deployment sub create \
-  --location <any-azure-region> \
+  --location eastus \
   --template-file infra/azure/subscription_budget_autostop.bicep \
   --parameters @infra/azure/subscription_budget_autostop.parameters.json
 ```
 
 Notes:
+- Cost budgets can lag; this is best-effort only.
+- Stopping compute reduces spend, but some resources still bill (for example: ACR storage, Cosmos storage).
 
-- This is best-effort only. Cost data and budget evaluation can lag, so it may not prevent you from exceeding $10.
-- Stopping apps reduces compute spend, but some resources still bill when "stopped" (for example: ACR SKU, storage capacity).
+## 3) Configure GitHub Actions (OIDC + Secrets + Vars)
 
-## 3) Configure GitHub OIDC and repository settings
+### GitHub Variables (repo-level)
 
-Secrets:
+- `AZURE_ACR_NAME` (example: `chatbotparkingacr`)
+- `AZURE_RESOURCE_GROUP` (example: `rg-chatbot-parking-v2`)
+- `AZURE_FUNCTIONAPP_NAME` (example: `chatbot-parking-func`)
 
-- `AZURE_CLIENT_ID`
-- `AZURE_TENANT_ID`
-- `AZURE_SUBSCRIPTION_ID`
-- `ADMIN_UI_TOKEN`
-Variables:
-
-- `AZURE_ACR_NAME`
-- `AZURE_RESOURCE_GROUP`
-- `AZURE_FUNCTIONAPP_NAME`
-
-## 4) CI/CD behavior
-
-### CI (`.github/workflows/ci.yml`)
-
-- Runs tests on push/PR.
-
-### CD (`.github/workflows/cd-azure-containerapps.yml`)
-
-- Builds and pushes `chatbot-parking-ui` image to ACR.
-- Updates the UI container app.
-- Deploys Durable Function code from `infra/azure/durable_functions`.
-
-## 5) Runtime configuration
-
-UI container expects:
-
-- `DURABLE_BASE_URL`
-- `DURABLE_FUNCTION_KEY`
-- `COSMOS_DB_ENDPOINT`
-- `COSMOS_DB_KEY`
-- `COSMOS_USE_MANAGED_IDENTITY=true` (optional alternative to `COSMOS_DB_KEY`, requires Cosmos RBAC)
-- `COSMOS_DB_DATABASE`
-- `COSMOS_DB_CONTAINER_THREADS`
-- `COSMOS_DB_CONTAINER_APPROVALS`
-- `COSMOS_DB_CONTAINER_RESERVATIONS`
-- `PERSISTENCE_BACKEND=cosmos`
-- `ADMIN_UI_TOKEN`
-
-Durable Function expects:
-
-- Cosmos connection variables listed above.
-- `PERSISTENCE_BACKEND=cosmos`
-
-Optional HTTP hardening knobs (UI/API service):
-
-- `RATE_LIMIT_ENABLED=true|false` (defaults to enabled in `APP_ENV=prod`)
-- `RATE_LIMIT_MAX_REQUESTS` / `RATE_LIMIT_WINDOW_SECONDS`
-- `CSP_ENABLED=true|false`
-
-## 6) Post-deploy validation
+Set via `gh`:
 
 ```bash
-curl -fsS https://<ui-fqdn>/chat/ui
-curl -fsS https://<ui-fqdn>/admin/ui
-curl -fsS https://<ui-fqdn>/admin/health
+gh variable set AZURE_ACR_NAME --body "chatbotparkingacr"
+gh variable set AZURE_RESOURCE_GROUP --body "rg-chatbot-parking-v2"
+gh variable set AZURE_FUNCTIONAPP_NAME --body "chatbot-parking-func"
 ```
 
-Durable starter check:
+### GitHub Secrets (repo-level)
+
+Required:
+- `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` / `AZURE_SUBSCRIPTION_ID` (for `azure/login` OIDC)
+- `ADMIN_UI_TOKEN` (protects admin API + UI actions via `x-api-token`)
+- `SESSION_SECRET_KEY` (cookie/session signing key; required in `APP_ENV=prod`)
+- `OPENAI_API_KEY` (LLM + optional server-side dictation transcription)
+
+Optional (enables GitHub OAuth login in UI):
+- `OAUTH_GITHUB_CLIENT_ID`
+- `OAUTH_GITHUB_CLIENT_SECRET`
+
+Set via `gh` (example commands; values are read from stdin by default):
 
 ```bash
-curl -X POST https://<function-fqdn>/api/chat/start \
-  -H 'x-functions-key: <function-key>' \
-  -H 'Content-Type: application/json' \
-  -d '{"message":"What are the parking hours?","thread_id":"smoke-1"}'
+gh secret set AZURE_CLIENT_ID
+gh secret set AZURE_TENANT_ID
+gh secret set AZURE_SUBSCRIPTION_ID
+gh secret set ADMIN_UI_TOKEN
+gh secret set SESSION_SECRET_KEY
+gh secret set OPENAI_API_KEY
 ```
 
-## 7) Smoke flow (end-to-end)
+## 4) Deploy (CD)
 
-1. Open `https://<ui-fqdn>/chat/ui` and start booking.
-2. Open `https://<ui-fqdn>/admin/ui`, enter `ADMIN_UI_TOKEN`, approve request.
-3. Return to chat and send another message; expect `Confirmed and recorded.`.
-4. Verify reservation item exists in Cosmos reservations container.
+CD workflow: `.github/workflows/cd-azure-containerapps.yml`
 
-## 8) Recommended hardening follow-ups
+Triggers:
+- On push to `main`
+- Manual run via `workflow_dispatch`
 
-- Move secret values to Key Vault and use managed identity.
-- Add staged environments with approvals.
-- Add vulnerability scanning to CD.
+Monitor:
+
+```bash
+gh run list --workflow cd-azure-containerapps.yml --limit 5
+gh run watch --workflow cd-azure-containerapps.yml
+```
+
+## 5) Post-Deploy Validation
+
+1. Confirm UIs:
+
+```bash
+FQDN="$(az containerapp show -g rg-chatbot-parking-v2 -n chatbot-parking-ui --query 'properties.configuration.ingress.fqdn' -o tsv)"
+BASE_URL="https://${FQDN}"
+curl -fsSL "$BASE_URL/chat/ui" >/dev/null
+curl -fsSL "$BASE_URL/admin/ui" >/dev/null
+curl -fsSL "$BASE_URL/version"
+```
+
+2. Retrieve admin token (do not paste into chat):
+
+```bash
+az containerapp secret list -g rg-chatbot-parking-v2 -n chatbot-parking-ui --show-values \
+  --query "[?name=='admin-ui-token'].value" -o tsv
+```
+
+3. Run the full smoke test (booking -> approve -> recorded):
+
+```bash
+FQDN="$(az containerapp show -g rg-chatbot-parking-v2 -n chatbot-parking-ui --query 'properties.configuration.ingress.fqdn' -o tsv)"
+ADMIN_TOKEN="$(az containerapp secret list -g rg-chatbot-parking-v2 -n chatbot-parking-ui --show-values --query \"[?name=='admin-ui-token'].value\" -o tsv)"
+BASE_URL="https://${FQDN}" ADMIN_TOKEN="$ADMIN_TOKEN" ./scripts/smoke_test_cloud.sh
+```
+
+## 6) Managed Identity (Cosmos Keyless)
+
+This deployment is designed to use **Cosmos RBAC + Managed Identity**:
+
+- `COSMOS_USE_MANAGED_IDENTITY=true`
+- No Cosmos keys are required in app settings.
+
+If Cosmos access fails, see `docs/quota_support_payload.md` for troubleshooting patterns.
+
+## 7) Tear Down (Avoid Ongoing Cost)
+
+Delete the resource group (and optionally the budget/action group):
+
+```bash
+bash scripts/azure/teardown.sh rg-chatbot-parking-v2
+```

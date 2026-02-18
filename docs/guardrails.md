@@ -2,7 +2,10 @@
 
 ## Sensitive Data Detection Rules
 
-The demo applies regex-based redaction and filtering for:
+The demo applies **regex-based detection** plus an **optional ML/NER pass** (pre-trained NER model via Transformers)
+to reduce the chance of leaking sensitive data.
+
+Regex detection covers:
 
 - credit card-like sequences
 - SSN-like numbers
@@ -12,7 +15,12 @@ The demo applies regex-based redaction and filtering for:
 - password keywords
 - common secrets/tokens (best-effort): OpenAI/Google keys, AWS keys, GitHub/Slack tokens, private keys, JWT-like tokens
 
-See `chatbot_parking.guardrails` for the exact patterns.
+Optional ML/NER detection:
+
+- Enabled by default when the dependency is available (`GUARDRAILS_USE_ML=true`).
+- Configurable model name via `GUARDRAILS_NER_MODEL` (default: `dslim/bert-base-NER`).
+
+See `src/chatbot_parking/guardrails.py` for the exact patterns and ML settings.
 
 ## Guardrail Layers
 
@@ -20,6 +28,9 @@ See `chatbot_parking.guardrails` for the exact patterns.
 2. **Retrieval filtering**: chunks marked `private` are filtered out of results.
 3. **Output filter**: responses are blocked if they contain sensitive patterns.
 4. **HTTP safety**: rate limiting + security headers are enforced in the UI/API service.
+   - In `APP_ENV=prod`, API docs are not exposed (`/docs`, `/redoc`, `/openapi.json` return 404).
+   - Trusted host allow-list is enabled in prod (`ALLOWED_HOSTS`).
+   - Slack and WhatsApp webhooks support signature verification + anti-replay controls.
 5. **Tool safety**: reservation tool inputs are sanitized before writing to file.
 
 ## OWASP LLM Top 10 (2025) Alignment (High-Level)
