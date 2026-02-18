@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 import hmac
 import hashlib
@@ -34,7 +35,9 @@ from chatbot_parking.admin_store import (
 )
 from chatbot_parking.chatbot import ParkingChatbot
 from chatbot_parking.cli import is_reservation_intent
+from chatbot_parking.dynamic_data import get_dynamic_info
 from chatbot_parking.interactive_flow import run_chat_turn
+from chatbot_parking.parking_spots import build_spot_board, default_board_window
 from chatbot_parking.persistence import get_persistence
 
 app = FastAPI(title="Parking Chat + Admin UI")
@@ -747,6 +750,91 @@ def post_decision(decision: DecisionIn, _auth: None = Depends(_require_admin_tok
     if not decision_result:
         raise HTTPException(status_code=404, detail="Request not found")
     return decision_result
+
+
+def _parse_board_dt(value: str | None) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text)
+    except Exception:
+        pass
+    try:
+        return datetime.strptime(text, "%Y-%m-%d %H:%M")
+    except Exception:
+        return None
+
+
+def _parking_total_spaces(fallback: int) -> int:
+    raw = os.getenv("PARKING_TOTAL_SPACES")
+    if not raw:
+        return int(fallback)
+    try:
+        return int(raw)
+    except Exception:
+        return int(fallback)
+
+
+@app.get("/admin/decided")
+def list_decided_requests(
+    approved: bool | None = Query(default=None),
+    _auth: None = Depends(_require_admin_token),
+):
+    """List approvals that already have a decision (approved/declined)."""
+    return get_persistence().list_decided_approvals(approved=approved)
+
+
+@app.get("/admin/reservations")
+def list_reservations(
+    limit: int = Query(default=200, ge=1, le=1000),
+    _auth: None = Depends(_require_admin_token),
+):
+    """List confirmed reservations (recorded after admin approval)."""
+    return get_persistence().list_reservations(limit=limit)
+
+
+@app.get("/admin/parking/spots")
+def parking_spot_board(
+    start: str | None = None,
+    end: str | None = None,
+    _auth: None = Depends(_require_admin_token),
+):
+    """Return a simple "spot board" for a given time window."""
+    dynamic = get_dynamic_info()
+    total_spots = _parking_total_spaces(dynamic.available_spaces)
+
+    start_dt = _parse_board_dt(start)
+    end_dt = _parse_board_dt(end)
+    if start_dt is None or end_dt is None or end_dt <= start_dt:
+        start_dt, end_dt = default_board_window()
+
+    # Avoid very large windows in a public endpoint.
+    if (end_dt - start_dt).total_seconds() > 60 * 60 * 24 * 7:
+        raise HTTPException(status_code=400, detail="Window too large (max 7 days)")
+
+    reservations = get_persistence().list_reservations(limit=500)
+    board = build_spot_board(
+        start=start_dt,
+        end=end_dt,
+        reservations=reservations,
+        total_spots=total_spots,
+    )
+    return {
+        "start": start_dt.isoformat(),
+        "end": end_dt.isoformat(),
+        "total_spots": total_spots,
+        "booked_spots": sum(1 for item in board if item.status == "booked"),
+        "spots": [
+            {
+                "spot_id": item.spot_id,
+                "status": item.status,
+                "booked_until": item.booked_until,
+                "reservations": item.reservations,
+            }
+            for item in board
+        ],
+    }
 
 
 @app.get("/admin/ui")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import os
 import re
 from typing import Any, Callable
 
@@ -14,11 +15,13 @@ from chatbot_parking.booking_utils import (
     next_missing_field,
     normalize_car_number,
     normalize_reservation_period,
+    parse_reservation_period,
     parse_structured_details,
     suggest_alternative_periods,
     validate_field,
 )
 from chatbot_parking.dynamic_data import get_dynamic_info
+from chatbot_parking.parking_spots import count_overlapping_reservations, choose_spot_id
 from chatbot_parking.persistence import Persistence
 
 FIELD_PROMPTS: dict[str, str] = {
@@ -337,12 +340,39 @@ def run_chat_turn(
         if decision and decision.get("approved") is True:
             approval_time = decision.get("decided_at") or datetime.now(timezone.utc).isoformat()
             if not recorded:
+                spot_id: str | None = None
+                start_at: str | None = None
+                end_at: str | None = None
+                parsed_period = parse_reservation_period(str(collected.get("reservation_period", "")).strip())
+                if parsed_period:
+                    start_dt, end_dt = parsed_period
+                    start_at = start_dt.isoformat()
+                    end_at = end_dt.isoformat()
+                    try:
+                        total_spaces = int(
+                            os.getenv("PARKING_TOTAL_SPACES", str(get_dynamic_info().available_spaces))
+                        )
+                    except Exception:
+                        total_spaces = int(get_dynamic_info().available_spaces)
+                    try:
+                        reservations = persistence.list_reservations(limit=500)
+                        spot_id = choose_spot_id(
+                            start=start_dt,
+                            end=end_dt,
+                            reservations=reservations,
+                            total_spots=total_spaces,
+                        )
+                    except Exception:
+                        spot_id = None
                 persistence.append_reservation(
                     name=f"{collected.get('name', '').strip()} {collected.get('surname', '').strip()}".strip(),
                     car_number=collected.get("car_number", ""),
                     reservation_period=collected.get("reservation_period", ""),
                     approval_time=approval_time,
                     request_id=request_id,
+                    spot_id=spot_id,
+                    start_at=start_at,
+                    end_at=end_at,
                 )
             recorder_error: str | None = None
             if record_reservation is not None and not mcp_recorded:
@@ -684,6 +714,55 @@ def run_chat_turn(
                     ),
                     next_state,
                 )
+
+            # Capacity check based on recorded reservations (prevents overbooking).
+            parsed_period = parse_reservation_period(text)
+            if parsed_period:
+                start_dt, end_dt = parsed_period
+                try:
+                    total_spaces = int(os.getenv("PARKING_TOTAL_SPACES", str(dynamic.available_spaces)))
+                except Exception:
+                    total_spaces = int(dynamic.available_spaces)
+                if total_spaces > 0:
+                    try:
+                        reservations = persistence.list_reservations(limit=500)
+                        booked = count_overlapping_reservations(
+                            start=start_dt,
+                            end=end_dt,
+                            reservations=reservations,
+                        )
+                    except Exception:
+                        booked = 0
+                    if booked >= total_spaces:
+                        suggestions = suggest_alternative_periods(text, dynamic.working_hours)
+                        next_state = _state_with(
+                            current,
+                            mode="booking",
+                            booking_active=True,
+                            pending_field=pending_field,
+                            collected=collected,
+                            status="collecting",
+                            recorded=recorded,
+                            mcp_recorded=mcp_recorded,
+                        )
+                        unavailable_text = (
+                            f"No spaces are available for that period (capacity {total_spaces} is fully booked)."
+                        )
+                        if suggestions:
+                            unavailable_text = unavailable_text + f" Suggested alternatives: {' OR '.join(suggestions)}."
+                        return (
+                            _booking_response(
+                                response=unavailable_text + f" {FIELD_PROMPTS[pending_field]}",
+                                status="collecting",
+                                pending_field=pending_field,
+                                collected=collected,
+                                action_required="input",
+                                alternatives=suggestions or None,
+                                recorded=recorded,
+                                mcp_recorded=mcp_recorded,
+                            ),
+                            next_state,
+                        )
 
             if dynamic.available_spaces <= 0:
                 suggestions = suggest_alternative_periods(text, dynamic.working_hours)

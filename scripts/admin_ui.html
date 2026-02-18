@@ -53,6 +53,28 @@
         margin-bottom: 12px;
       }
 
+      .tabs {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin: 10px 0 14px;
+      }
+
+      .tab {
+        border: 1px solid var(--border);
+        background: white;
+        border-radius: 999px;
+        padding: 8px 12px;
+        cursor: pointer;
+        color: var(--muted);
+      }
+
+      .tab.active {
+        color: var(--text);
+        border-color: #93c5fd;
+        box-shadow: 0 1px 0 rgba(37,99,235,0.08);
+      }
+
       input, textarea {
         border: 1px solid var(--border);
         border-radius: 10px;
@@ -60,6 +82,7 @@
       }
 
       #token { min-width: 300px; }
+      #spot-start, #spot-end { min-width: 220px; }
 
       button {
         border: 1px solid var(--border);
@@ -83,8 +106,24 @@
       .decline { color: var(--danger); border-color: #fecaca; }
       .error { color: var(--danger); }
 
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      th, td {
+        border-bottom: 1px solid var(--border);
+        padding: 8px;
+        text-align: left;
+        vertical-align: top;
+        font-size: 0.95rem;
+      }
+
+      th { color: var(--muted); font-weight: 600; }
+
       @media (max-width: 720px) {
         #token { min-width: 0; width: 100%; }
+        #spot-start, #spot-end { min-width: 0; width: 100%; }
         .decision-row button { width: 100%; }
       }
     </style>
@@ -93,7 +132,7 @@
     <div class="container">
       <div class="panel">
         <div class="top">
-          <h2>Pending Approval Requests</h2>
+          <h2 id="view-title">Admin Dashboard</h2>
           <a href="/chat/ui">Back to Chat UI</a>
         </div>
 
@@ -109,8 +148,21 @@
           </label>
         </div>
 
+        <div class="tabs" id="tabs">
+          <button class="tab active" data-view="pending" type="button">Pending</button>
+          <button class="tab" data-view="decided" type="button">Decisions</button>
+          <button class="tab" data-view="reservations" type="button">Reservations</button>
+          <button class="tab" data-view="spots" type="button">Spot board</button>
+        </div>
+
+        <div class="controls" id="spot-controls" style="display:none;">
+          <input id="spot-start" type="datetime-local" />
+          <input id="spot-end" type="datetime-local" />
+          <button id="spot-refresh" type="button">Refresh spots</button>
+        </div>
+
         <div id="summary" class="meta">Loading...</div>
-        <div id="pending" style="margin-top:10px;">Loading...</div>
+        <div id="content" style="margin-top:10px;">Loading...</div>
       </div>
     </div>
 
@@ -122,6 +174,15 @@
       const autoRefresh = document.getElementById('auto-refresh');
       const summary = document.getElementById('summary');
       const buildInfo = document.getElementById('build-info');
+      const viewTitle = document.getElementById('view-title');
+      const tabs = document.getElementById('tabs');
+      const content = document.getElementById('content');
+      const spotControls = document.getElementById('spot-controls');
+      const spotStartInput = document.getElementById('spot-start');
+      const spotEndInput = document.getElementById('spot-end');
+      const spotRefreshButton = document.getElementById('spot-refresh');
+
+      let currentView = 'pending';
 
       tokenInput.value = localStorage.getItem(TOKEN_KEY) || '';
 
@@ -140,15 +201,64 @@
         return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
       }
 
+      async function readResponsePayload(response) {
+        const contentType = response.headers.get('content-type') || '';
+        if (contentType.toLowerCase().includes('application/json')) {
+          try {
+            return await response.json();
+          } catch (_error) {
+            return { detail: 'Failed to parse JSON response.' };
+          }
+        }
+        const text = await response.text();
+        return { detail: text || 'Unexpected non-JSON response.' };
+      }
+
       saveTokenButton.addEventListener('click', () => {
         localStorage.setItem(TOKEN_KEY, tokenInput.value.trim());
-        fetchPending();
+        refreshView();
       });
 
-      refreshButton.addEventListener('click', () => fetchPending());
+      refreshButton.addEventListener('click', () => refreshView());
+
+      function setActiveTab(view) {
+        currentView = view;
+        for (const btn of tabs.querySelectorAll('button[data-view]')) {
+          btn.classList.toggle('active', btn.dataset.view === view);
+        }
+        spotControls.style.display = view === 'spots' ? 'flex' : 'none';
+        if (view === 'pending') viewTitle.textContent = 'Pending Approval Requests';
+        if (view === 'decided') viewTitle.textContent = 'Decisions (Approved/Declined)';
+        if (view === 'reservations') viewTitle.textContent = 'Confirmed Reservations';
+        if (view === 'spots') viewTitle.textContent = 'Parking Spot Board';
+      }
+
+      tabs.addEventListener('click', (event) => {
+        const button = event.target.closest('button[data-view]');
+        if (!button) return;
+        setActiveTab(button.dataset.view);
+        refreshView();
+      });
+
+      function defaultSpotWindow() {
+        const now = new Date();
+        now.setSeconds(0);
+        now.setMilliseconds(0);
+        const end = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+        const toLocal = (d) => {
+          const pad = (n) => String(n).padStart(2, '0');
+          return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        };
+        return { start: toLocal(now), end: toLocal(end) };
+      }
+
+      const windowDefaults = defaultSpotWindow();
+      spotStartInput.value = windowDefaults.start;
+      spotEndInput.value = windowDefaults.end;
+      spotRefreshButton.addEventListener('click', () => refreshView());
 
       async function fetchPending() {
-        const container = document.getElementById('pending');
+        const container = content;
         if (!hasToken()) {
           summary.className = 'meta';
           summary.textContent = 'Provide admin token to view pending requests.';
@@ -168,7 +278,7 @@
           }
 
           summary.className = 'meta';
-          const requests = await response.json();
+          const requests = await readResponsePayload(response);
           const pending = Array.isArray(requests) ? requests : [];
           summary.textContent = `Pending requests: ${pending.length}`;
 
@@ -246,6 +356,176 @@
         }
       }
 
+      async function fetchDecided() {
+        if (!hasToken()) {
+          summary.className = 'meta';
+          summary.textContent = 'Provide admin token to view decisions.';
+          content.textContent = '';
+          return;
+        }
+        try {
+          const response = await fetch('/admin/decided', { headers: authHeaders() });
+          const data = await readResponsePayload(response);
+          if (!response.ok) {
+            summary.className = 'error';
+            summary.textContent = `Failed to load decisions (${response.status}).`;
+            content.textContent = '';
+            return;
+          }
+          const items = Array.isArray(data) ? data : [];
+          summary.className = 'meta';
+          summary.textContent = `Decisions: ${items.length}`;
+
+          if (items.length === 0) {
+            content.textContent = 'No decided requests yet.';
+            return;
+          }
+
+          const table = document.createElement('table');
+          const thead = document.createElement('thead');
+          thead.innerHTML = '<tr><th>Request</th><th>Status</th><th>Guest</th><th>Period</th><th>Decided</th></tr>';
+          table.appendChild(thead);
+          const tbody = document.createElement('tbody');
+
+          for (const item of items) {
+            const payload = item.payload || {};
+            const decision = item.decision || {};
+            const status = decision.approved === true ? 'APPROVED' : 'DECLINED';
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td>${(item.request_id || '').toString()}</td>
+              <td>${status}</td>
+              <td>${`${(payload.name||'').trim()} ${(payload.surname||'').trim()}`.trim()}</td>
+              <td>${(payload.reservation_period || '').toString()}</td>
+              <td>${formatDate(decision.decided_at)}</td>
+            `;
+            tbody.appendChild(tr);
+          }
+
+          table.appendChild(tbody);
+          content.textContent = '';
+          content.appendChild(table);
+        } catch (_error) {
+          summary.className = 'error';
+          summary.textContent = 'Failed to load decisions.';
+          content.textContent = '';
+        }
+      }
+
+      async function fetchReservations() {
+        if (!hasToken()) {
+          summary.className = 'meta';
+          summary.textContent = 'Provide admin token to view reservations.';
+          content.textContent = '';
+          return;
+        }
+        try {
+          const response = await fetch('/admin/reservations?limit=200', { headers: authHeaders() });
+          const data = await readResponsePayload(response);
+          if (!response.ok) {
+            summary.className = 'error';
+            summary.textContent = `Failed to load reservations (${response.status}).`;
+            content.textContent = '';
+            return;
+          }
+          const items = Array.isArray(data) ? data : [];
+          summary.className = 'meta';
+          summary.textContent = `Confirmed reservations: ${items.length}`;
+
+          if (items.length === 0) {
+            content.textContent = 'No confirmed reservations yet.';
+            return;
+          }
+
+          const table = document.createElement('table');
+          const thead = document.createElement('thead');
+          thead.innerHTML = '<tr><th>Spot</th><th>Guest</th><th>Car</th><th>Period</th><th>Approved</th></tr>';
+          table.appendChild(thead);
+          const tbody = document.createElement('tbody');
+
+          for (const item of items) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td>${(item.spot_id || '-').toString()}</td>
+              <td>${(item.name || '').toString()}</td>
+              <td>${(item.car_number || '').toString()}</td>
+              <td>${(item.reservation_period || '').toString()}</td>
+              <td>${formatDate(item.approval_time)}</td>
+            `;
+            tbody.appendChild(tr);
+          }
+
+          table.appendChild(tbody);
+          content.textContent = '';
+          content.appendChild(table);
+        } catch (_error) {
+          summary.className = 'error';
+          summary.textContent = 'Failed to load reservations.';
+          content.textContent = '';
+        }
+      }
+
+      async function fetchSpotBoard() {
+        if (!hasToken()) {
+          summary.className = 'meta';
+          summary.textContent = 'Provide admin token to view spot board.';
+          content.textContent = '';
+          return;
+        }
+        const start = (spotStartInput.value || '').trim();
+        const end = (spotEndInput.value || '').trim();
+
+        try {
+          const url = `/admin/parking/spots?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
+          const response = await fetch(url, { headers: authHeaders() });
+          const data = await readResponsePayload(response);
+          if (!response.ok) {
+            summary.className = 'error';
+            summary.textContent = `Failed to load spot board (${response.status}).`;
+            content.textContent = '';
+            return;
+          }
+
+          const total = Number(data?.total_spots || 0);
+          const booked = Number(data?.booked_spots || 0);
+          summary.className = 'meta';
+          summary.textContent = `Window: ${formatDate(data?.start)} -> ${formatDate(data?.end)} | Spots booked: ${booked}/${total}`;
+
+          const spots = Array.isArray(data?.spots) ? data.spots : [];
+          const table = document.createElement('table');
+          const thead = document.createElement('thead');
+          thead.innerHTML = '<tr><th>Spot</th><th>Status</th><th>Booked until</th><th>Reservations</th></tr>';
+          table.appendChild(thead);
+          const tbody = document.createElement('tbody');
+
+          for (const spot of spots) {
+            const tr = document.createElement('tr');
+            const reservations = Array.isArray(spot?.reservations) ? spot.reservations : [];
+            const details = reservations.map((r) => {
+              const guest = (r.name || '').toString();
+              const car = (r.car_number || '').toString();
+              const period = (r.reservation_period || '').toString();
+              return `${guest} (${car}) ${period}`.trim();
+            }).filter(Boolean);
+            tr.innerHTML = `
+              <td>${(spot.spot_id || '').toString()}</td>
+              <td>${(spot.status || '').toString()}</td>
+              <td>${formatDate(spot.booked_until)}</td>
+              <td>${details.length ? details.join('<br/>') : '-'}</td>
+            `;
+            tbody.appendChild(tr);
+          }
+
+          table.appendChild(tbody);
+          content.textContent = '';
+          content.appendChild(table);
+        } catch (_error) {
+          summary.className = 'error';
+          summary.textContent = 'Failed to load spot board.';
+          content.textContent = '';
+        }
+      }
+
       async function sendDecision(requestId, approved) {
         const noteEl = document.getElementById(`note-${requestId}`);
         const noteText = noteEl ? noteEl.value.trim() : '';
@@ -296,12 +576,21 @@
           buildInfo.textContent = 'Build: unavailable';
         });
 
-      fetchPending();
       setInterval(() => {
-        if (autoRefresh.checked && hasToken()) {
+        if (autoRefresh.checked && hasToken() && currentView === 'pending') {
           fetchPending();
         }
       }, 3000);
+
+      function refreshView() {
+        if (currentView === 'pending') return fetchPending();
+        if (currentView === 'decided') return fetchDecided();
+        if (currentView === 'reservations') return fetchReservations();
+        if (currentView === 'spots') return fetchSpotBoard();
+      }
+
+      setActiveTab('pending');
+      refreshView();
     </script>
   </body>
 </html>

@@ -73,3 +73,25 @@ def test_admin_requests_require_token_when_configured(monkeypatch):
     authorized = client.get("/admin/requests", headers={"x-api-token": "secret"})
     assert authorized.status_code == 200
     assert isinstance(authorized.json(), list)
+
+
+def test_admin_history_and_reservations_endpoints_require_token(monkeypatch):
+    monkeypatch.setenv("ADMIN_UI_TOKEN", "secret")
+
+    assert client.get("/admin/decided").status_code == 401
+    assert client.get("/admin/reservations").status_code == 401
+    assert client.get("/admin/parking/spots").status_code == 401
+
+    decided = client.get("/admin/decided", headers={"x-api-token": "secret"})
+    assert decided.status_code == 200
+    assert isinstance(decided.json(), list)
+
+    reservations = client.get("/admin/reservations", headers={"x-api-token": "secret"})
+    assert reservations.status_code == 200
+    assert isinstance(reservations.json(), list)
+
+    board = client.get("/admin/parking/spots", headers={"x-api-token": "secret"})
+    assert board.status_code == 200
+    payload = board.json()
+    assert isinstance(payload.get("spots"), list)
+    assert "total_spots" in payload

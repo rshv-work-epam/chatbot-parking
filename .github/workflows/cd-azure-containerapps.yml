@@ -192,7 +192,8 @@ jobs:
           BASE_URL="$BASE_URL" ADMIN_TOKEN="$ADMIN_UI_TOKEN" ./scripts/smoke_test_cloud.sh
 
   deploy-durable:
-    runs-on: ubuntu-latest
+    # Build Python deps on an older glibc baseline to avoid runtime mismatches on Azure Functions.
+    runs-on: ubuntu-20.04
     needs: deploy-containers
     steps:
       - uses: actions/checkout@v4

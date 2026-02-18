@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 import os
+import re
 from typing import Optional
 
 from chatbot_parking.booking_utils import (
@@ -82,23 +83,47 @@ class ParkingChatbot:
         if contains_prompt_injection(question):
             return "Sorry, I can't help with that request."
 
+        question_for_answer = question.strip()
+        lowered = question_for_answer.lower().strip()
+        if re.fullmatch(r"(parking\\s+)?rules?\\??", lowered) or lowered in {
+            "policy",
+            "policies",
+            "terms",
+            "terms and conditions",
+        }:
+            question_for_answer = "What are the parking rules and policies?"
+
         dynamic = get_dynamic_info()
         max_context = int(os.getenv("MAX_RAG_CONTEXT_CHARS", "6000"))
         context = ""
         retrieval_docs = []
+        backstop_context = ""
+
+        # Keyword-based static doc selection helps with short, ambiguous queries (e.g. "rules")
+        # where embedding similarity search can return irrelevant chunks.
+        try:
+            backstop_context = keyword_context(question_for_answer, max_chars=max_context)
+        except Exception:
+            backstop_context = ""
 
         if self.vector_store is not None:
             try:
-                retrieval = retrieve(question, self.vector_store)
+                retrieval = retrieve(question_for_answer, self.vector_store)
                 retrieval_docs = list(retrieval.documents)
                 snippets = [doc.page_content for doc in retrieval_docs]
                 safe_snippets = filter_sensitive(snippets)
                 context = "\n".join(safe_snippets) if safe_snippets else ""
             except Exception:
                 # Embeddings/vector store failed. Fall back to deterministic context.
-                context = keyword_context(question, max_chars=max_context)
+                context = backstop_context or keyword_context(question_for_answer, max_chars=max_context)
         else:
-            context = keyword_context(question, max_chars=max_context)
+            context = backstop_context or keyword_context(question_for_answer, max_chars=max_context)
+
+        if backstop_context and backstop_context not in context:
+            # Prefer the backstop for short queries, but also include it when the retrieved
+            # context is empty (avoids "I don't know" on known topics).
+            if not context or len(question_for_answer) <= 120 or len(question_for_answer.split()) <= 8:
+                context = (context + "\n\n" + backstop_context).strip() if context else backstop_context
 
         if max_context > 0 and len(context) > max_context:
             context = context[:max_context].rstrip()
@@ -107,9 +132,9 @@ class ParkingChatbot:
             f"Hours: {dynamic.working_hours}. Pricing: {dynamic.pricing}."
         )
         try:
-            response = generate_answer(question, context, dynamic_info)
+            response = generate_answer(question_for_answer, context, dynamic_info)
         except Exception:
-            response = generate_fallback_answer(question, dynamic_info)
+            response = generate_fallback_answer(question_for_answer, dynamic_info)
         if os.getenv("RAG_INCLUDE_SOURCES", "false").strip().lower() == "true":
             source_ids: list[str] = []
             for doc in retrieval_docs:

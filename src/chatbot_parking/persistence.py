@@ -42,6 +42,10 @@ class Persistence:
     def list_pending_approvals(self) -> list[dict[str, Any]]:
         raise NotImplementedError
 
+    def list_decided_approvals(self, approved: bool | None = None) -> list[dict[str, Any]]:
+        """Return approvals that have a decision (approved/declined)."""
+        raise NotImplementedError
+
     def set_approval_decision(
         self,
         request_id: str,
@@ -57,7 +61,13 @@ class Persistence:
         reservation_period: str,
         approval_time: str,
         request_id: str | None = None,
+        spot_id: str | None = None,
+        start_at: str | None = None,
+        end_at: str | None = None,
     ) -> dict[str, Any]:
+        raise NotImplementedError
+
+    def list_reservations(self, limit: int = 200) -> list[dict[str, Any]]:
         raise NotImplementedError
 
 
@@ -99,6 +109,16 @@ class InMemoryPersistence(Persistence):
     def list_pending_approvals(self) -> list[dict[str, Any]]:
         return [dict(item) for item in self.approvals.values() if not item.get("decision")]
 
+    def list_decided_approvals(self, approved: bool | None = None) -> list[dict[str, Any]]:
+        decided = [dict(item) for item in self.approvals.values() if item.get("decision")]
+        if approved is None:
+            return decided
+        return [
+            item
+            for item in decided
+            if isinstance(item.get("decision"), dict) and item["decision"].get("approved") is approved
+        ]
+
     def set_approval_decision(
         self,
         request_id: str,
@@ -124,6 +144,9 @@ class InMemoryPersistence(Persistence):
         reservation_period: str,
         approval_time: str,
         request_id: str | None = None,
+        spot_id: str | None = None,
+        start_at: str | None = None,
+        end_at: str | None = None,
     ) -> dict[str, Any]:
         entry = {
             "id": str(uuid4()),
@@ -132,10 +155,19 @@ class InMemoryPersistence(Persistence):
             "car_number": car_number,
             "reservation_period": reservation_period,
             "approval_time": approval_time,
+            "spot_id": spot_id,
+            "start_at": start_at,
+            "end_at": end_at,
             "created_at": _utc_now(),
         }
         self.reservations.append(entry)
         return dict(entry)
+
+    def list_reservations(self, limit: int = 200) -> list[dict[str, Any]]:
+        # Return newest first.
+        items = list(self.reservations)[-limit:]
+        items.reverse()
+        return [dict(item) for item in items]
 
 
 class CosmosPersistence(Persistence):
@@ -222,6 +254,25 @@ class CosmosPersistence(Persistence):
             for item in items
         ]
 
+    def list_decided_approvals(self, approved: bool | None = None) -> list[dict[str, Any]]:
+        query = "SELECT * FROM c WHERE IS_DEFINED(c.decision) AND NOT IS_NULL(c.decision)"
+        if approved is True:
+            query = query + " AND c.decision.approved = true"
+        elif approved is False:
+            query = query + " AND c.decision.approved = false"
+
+        items = self._approvals.query_items(query=query, enable_cross_partition_query=True)
+        return [
+            {
+                "request_id": item.get("request_id", item.get("id")),
+                "payload": item.get("payload") or {},
+                "decision": item.get("decision"),
+                "created_at": item.get("created_at"),
+                "updated_at": item.get("updated_at"),
+            }
+            for item in items
+        ]
+
     def set_approval_decision(
         self,
         request_id: str,
@@ -256,6 +307,9 @@ class CosmosPersistence(Persistence):
         reservation_period: str,
         approval_time: str,
         request_id: str | None = None,
+        spot_id: str | None = None,
+        start_at: str | None = None,
+        end_at: str | None = None,
     ) -> dict[str, Any]:
         entry_id = str(uuid4())
         partition_key = request_id or entry_id
@@ -267,10 +321,24 @@ class CosmosPersistence(Persistence):
             "car_number": car_number,
             "reservation_period": reservation_period,
             "approval_time": approval_time,
+            "spot_id": spot_id,
+            "start_at": start_at,
+            "end_at": end_at,
             "created_at": _utc_now(),
         }
         self._reservations.upsert_item(payload)
         return payload
+
+    def list_reservations(self, limit: int = 200) -> list[dict[str, Any]]:
+        # Cosmos supports ORDER BY with cross-partition query.
+        query = "SELECT * FROM c ORDER BY c.created_at DESC"
+        items = self._reservations.query_items(query=query, enable_cross_partition_query=True)
+        results: list[dict[str, Any]] = []
+        for item in items:
+            results.append(dict(item))
+            if len(results) >= limit:
+                break
+        return results
 
 
 @lru_cache(maxsize=1)
