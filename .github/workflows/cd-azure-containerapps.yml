@@ -53,10 +53,11 @@ jobs:
           AZURE_FUNCTIONAPP_NAME: ${{ vars.AZURE_FUNCTIONAPP_NAME }}
           ADMIN_UI_TOKEN: ${{ secrets.ADMIN_UI_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SESSION_SECRET_KEY: ${{ secrets.SESSION_SECRET_KEY }}
         run: |
           set -e
           missing=0
-          for v in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID AZURE_ACR_NAME AZURE_RESOURCE_GROUP AZURE_FUNCTIONAPP_NAME ADMIN_UI_TOKEN OPENAI_API_KEY; do
+          for v in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID AZURE_ACR_NAME AZURE_RESOURCE_GROUP AZURE_FUNCTIONAPP_NAME ADMIN_UI_TOKEN OPENAI_API_KEY SESSION_SECRET_KEY; do
             if [ -z "${!v}" ]; then
               echo "::error::$v is not set." >&2
               missing=1
@@ -99,7 +100,16 @@ jobs:
           az containerapp secret set \
             --resource-group "$RESOURCE_GROUP" \
             --name "${{ matrix.app_name }}" \
-            --secrets durable-function-key="$FUNC_KEY" admin-ui-token="${{ secrets.ADMIN_UI_TOKEN }}" openai-api-key="${{ secrets.OPENAI_API_KEY }}"
+            --secrets durable-function-key="$FUNC_KEY" admin-ui-token="${{ secrets.ADMIN_UI_TOKEN }}" openai-api-key="${{ secrets.OPENAI_API_KEY }}" session-secret-key="${{ secrets.SESSION_SECRET_KEY }}"
+
+          OAUTH_ENV_ARGS=""
+          if [ -n "${{ secrets.OAUTH_GITHUB_CLIENT_ID }}" ] && [ -n "${{ secrets.OAUTH_GITHUB_CLIENT_SECRET }}" ]; then
+            az containerapp secret set \
+              --resource-group "$RESOURCE_GROUP" \
+              --name "${{ matrix.app_name }}" \
+              --secrets oauth-github-client-id="${{ secrets.OAUTH_GITHUB_CLIENT_ID }}" oauth-github-client-secret="${{ secrets.OAUTH_GITHUB_CLIENT_SECRET }}"
+            OAUTH_ENV_ARGS="OAUTH_GITHUB_CLIENT_ID=secretref:oauth-github-client-id OAUTH_GITHUB_CLIENT_SECRET=secretref:oauth-github-client-secret"
+          fi
 
           az containerapp update \
             --resource-group "$RESOURCE_GROUP" \
@@ -108,6 +118,9 @@ jobs:
             --set-env-vars \
               APP_ENV=prod \
               ADMIN_UI_TOKEN=secretref:admin-ui-token \
+              SESSION_SECRET_KEY=secretref:session-secret-key \
+              SESSION_HTTPS_ONLY=true \
+              COSMOS_USE_MANAGED_IDENTITY=true \
               DURABLE_BASE_URL="https://${FUNC_NAME}.azurewebsites.net" \
               DURABLE_FUNCTION_KEY=secretref:durable-function-key \
               LLM_PROVIDER=openai \
@@ -121,7 +134,8 @@ jobs:
               MCP_SERVER_COMMAND=python \
               MCP_SERVER_ARGS='-m chatbot_parking.mcp_servers.reservations_stdio_server' \
               BUILD_SHA='${{ github.sha }}' \
-              BUILD_TIME="$BUILD_TIME"
+              BUILD_TIME="$BUILD_TIME" \
+              $OAUTH_ENV_ARGS
 
       - name: Smoke test deployed UI + booking flow
         if: steps.check-azure.outputs.has-azure == 'true'
