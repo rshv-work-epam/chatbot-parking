@@ -15,3 +15,4 @@ infra/azure/durable_functions/data/
 
 # Local bicep build artifacts
 infra/azure/main.json
+infra/azure/subscription_budget_autostop.json
