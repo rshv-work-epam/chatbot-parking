@@ -335,7 +335,21 @@ class CosmosPersistence(Persistence):
         items = self._reservations.query_items(query=query, enable_cross_partition_query=True)
         results: list[dict[str, Any]] = []
         for item in items:
-            results.append(dict(item))
+            results.append(
+                {
+                    "id": item.get("id"),
+                    "request_id": item.get("request_id"),
+                    "partition_key": item.get("partition_key"),
+                    "name": item.get("name"),
+                    "car_number": item.get("car_number"),
+                    "reservation_period": item.get("reservation_period"),
+                    "approval_time": item.get("approval_time"),
+                    "spot_id": item.get("spot_id"),
+                    "start_at": item.get("start_at"),
+                    "end_at": item.get("end_at"),
+                    "created_at": item.get("created_at"),
+                }
+            )
             if len(results) >= limit:
                 break
         return results
