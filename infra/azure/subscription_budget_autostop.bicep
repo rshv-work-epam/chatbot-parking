@@ -7,7 +7,7 @@ param resourceGroupName string
 param functionAppName string
 
 @description('Budget name (unique per scope).')
-param budgetName string = 'budget-autostop-10-usd'
+param budgetName string = 'chatbot-parking-10usd'
 
 @description('Budget amount in the subscription billing currency (USD for most US accounts).')
 param budgetAmount int = 10
@@ -19,7 +19,7 @@ param budgetStartDate string
 param budgetEndDate string = '9999-12-31T00:00:00Z'
 
 @description('Action Group name (resource group-scoped).')
-param actionGroupName string = 'ag-budget-autostop'
+param actionGroupName string = 'ag-chatbot-parking-budget-autostop'
 
 @description('Action Group short name (12 chars max).')
 param actionGroupShortName string = 'budgstop'
