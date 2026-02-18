@@ -255,10 +255,6 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
           value: deployCosmosDb ? cosmosAccount.properties.documentEndpoint : ''
         }
         {
-          name: 'COSMOS_DB_KEY'
-          value: deployCosmosDb ? cosmosAccount.listKeys().primaryMasterKey : ''
-        }
-        {
           name: 'COSMOS_USE_MANAGED_IDENTITY'
           value: deployCosmosDb ? 'true' : 'false'
         }
@@ -338,10 +334,6 @@ resource uiContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
           name: 'durable-function-key'
           value: listkeys('${functionApp.id}/host/default', '2023-12-01').functionKeys.default
         }
-        {
-          name: 'cosmos-db-key'
-          value: deployCosmosDb ? cosmosAccount.listKeys().primaryMasterKey : ''
-        }
       ]
     }
     template: {
@@ -373,18 +365,14 @@ resource uiContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
               name: 'COSMOS_DB_ENDPOINT'
               value: deployCosmosDb ? cosmosAccount.properties.documentEndpoint : ''
             }
-        {
-          name: 'COSMOS_DB_KEY'
-          secretRef: 'cosmos-db-key'
-        }
-        {
-          name: 'COSMOS_USE_MANAGED_IDENTITY'
-          value: deployCosmosDb ? 'true' : 'false'
-        }
-        {
-          name: 'COSMOS_DB_DATABASE'
-          value: deployCosmosDb ? cosmosDatabaseName : ''
-        }
+            {
+              name: 'COSMOS_USE_MANAGED_IDENTITY'
+              value: deployCosmosDb ? 'true' : 'false'
+            }
+            {
+              name: 'COSMOS_DB_DATABASE'
+              value: deployCosmosDb ? cosmosDatabaseName : ''
+            }
             {
               name: 'COSMOS_DB_CONTAINER_THREADS'
               value: deployCosmosDb ? cosmosThreadsContainerName : ''
