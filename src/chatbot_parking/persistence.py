@@ -307,6 +307,10 @@ def get_persistence() -> Persistence:
         try:
             return CosmosPersistence(settings)
         except Exception:
+            # If the caller explicitly requested Cosmos, fail closed (don't silently
+            # fall back to in-memory state in production).
+            if settings.backend == "cosmos":
+                raise
             return IN_MEMORY_PERSISTENCE
 
     return IN_MEMORY_PERSISTENCE
