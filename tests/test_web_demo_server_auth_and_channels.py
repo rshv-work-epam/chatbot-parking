@@ -69,3 +69,16 @@ def test_thread_id_length_limits(monkeypatch) -> None:
 
     response = client.post("/chat/message", json={"message": "hi", "thread_id": "123456"})
     assert response.status_code == 413
+
+
+def test_version_endpoint(monkeypatch) -> None:
+    monkeypatch.setenv("BUILD_SHA", "abc123")
+    monkeypatch.setenv("BUILD_TIME", "2026-02-18T00:00:00Z")
+    monkeypatch.setenv("APP_ENV", "prod")
+
+    resp = client.get("/version")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["git_sha"] == "abc123"
+    assert data["build_time"] == "2026-02-18T00:00:00Z"
+    assert data["app_env"] == "prod"

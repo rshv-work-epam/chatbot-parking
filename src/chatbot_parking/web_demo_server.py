@@ -444,6 +444,15 @@ async def handle_unexpected_exception(_req: Request, _exc: Exception):
 def admin_health() -> dict:
     return {"status": "ok", "service": "ui_admin_api"}
 
+@app.get("/version")
+def version() -> dict[str, str | None]:
+    """Return build metadata for deployment verification."""
+    return {
+        "git_sha": os.getenv("BUILD_SHA"),
+        "build_time": os.getenv("BUILD_TIME"),
+        "app_env": os.getenv("APP_ENV", "dev").strip().lower() or "dev",
+    }
+
 def _speech_dictation_enabled() -> bool:
     if os.getenv("SPEECH_DICTATION_ENABLED", "true").strip().lower() not in {"1", "true", "yes", "on"}:
         return False

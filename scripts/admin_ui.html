@@ -97,6 +97,8 @@
           <a href="/chat/ui">Back to Chat UI</a>
         </div>
 
+        <div id="build-info" class="meta" style="margin-bottom:10px;">Build: loading...</div>
+
         <div class="controls">
           <input id="token" type="password" placeholder="Admin token (x-api-token)" />
           <button id="save-token" type="button">Save token</button>
@@ -119,6 +121,7 @@
       const refreshButton = document.getElementById('refresh');
       const autoRefresh = document.getElementById('auto-refresh');
       const summary = document.getElementById('summary');
+      const buildInfo = document.getElementById('build-info');
 
       tokenInput.value = localStorage.getItem(TOKEN_KEY) || '';
 
@@ -266,6 +269,22 @@
           alert('Unable to submit decision. Verify token and retry.');
         }
       });
+
+      fetch('/version')
+        .then((resp) => resp.json())
+        .then((data) => {
+          const sha = (data?.git_sha || '').toString().slice(0, 12);
+          const when = (data?.build_time || '').toString();
+          const env = (data?.app_env || '').toString();
+          const parts = [];
+          if (sha) parts.push(`sha ${sha}`);
+          if (when) parts.push(when);
+          if (env) parts.push(env);
+          buildInfo.textContent = parts.length ? `Build: ${parts.join(' | ')}` : 'Build: unknown';
+        })
+        .catch(() => {
+          buildInfo.textContent = 'Build: unavailable';
+        });
 
       fetchPending();
       setInterval(() => {

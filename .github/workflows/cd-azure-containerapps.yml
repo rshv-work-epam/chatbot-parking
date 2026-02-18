@@ -88,6 +88,7 @@ jobs:
         if: steps.check-azure.outputs.has-azure == 'true'
         run: |
           FULL_IMAGE="${REGISTRY_NAME}.azurecr.io/${{ matrix.image_name }}:${{ github.sha }}"
+          BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           FUNC_NAME="${{ vars.AZURE_FUNCTIONAPP_NAME }}"
           FUNC_KEY="$(az functionapp keys list -g "$RESOURCE_GROUP" -n "$FUNC_NAME" --query 'functionKeys.default' -o tsv)"
           if [ -z "$FUNC_KEY" ]; then
@@ -118,7 +119,9 @@ jobs:
               RESERVATIONS_FILE_PATH=/tmp/reservations.txt \
               MCP_RECORD_RESERVATIONS=true \
               MCP_SERVER_COMMAND=python \
-              MCP_SERVER_ARGS='-m chatbot_parking.mcp_servers.reservations_stdio_server'
+              MCP_SERVER_ARGS='-m chatbot_parking.mcp_servers.reservations_stdio_server' \
+              BUILD_SHA='${{ github.sha }}' \
+              BUILD_TIME="$BUILD_TIME"
 
       - name: Smoke test deployed UI + booking flow
         if: steps.check-azure.outputs.has-azure == 'true'
