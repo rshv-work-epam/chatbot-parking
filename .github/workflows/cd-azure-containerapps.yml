@@ -9,6 +9,10 @@ permissions:
   id-token: write
   contents: read
 
+concurrency:
+  group: cd-azure-hybrid-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   REGISTRY_NAME: ${{ vars.AZURE_ACR_NAME }}
   RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
@@ -88,6 +92,23 @@ jobs:
       - name: Deploy container app revision
         if: steps.check-azure.outputs.has-azure == 'true'
         run: |
+          retry() {
+            local n=0
+            local max=10
+            while true; do
+              if "$@"; then
+                return 0
+              fi
+              n=$((n+1))
+              if [ "$n" -ge "$max" ]; then
+                echo "::error::Command failed after $n attempts: $*" >&2
+                return 1
+              fi
+              echo "Retrying in 10s (attempt $n/$max): $*" >&2
+              sleep 10
+            done
+          }
+
           FULL_IMAGE="${REGISTRY_NAME}.azurecr.io/${{ matrix.image_name }}:${{ github.sha }}"
           BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           FUNC_NAME="${{ vars.AZURE_FUNCTIONAPP_NAME }}"
@@ -97,21 +118,21 @@ jobs:
             exit 1
           fi
 
-          az containerapp secret set \
+          retry az containerapp secret set \
             --resource-group "$RESOURCE_GROUP" \
             --name "${{ matrix.app_name }}" \
             --secrets durable-function-key="$FUNC_KEY" admin-ui-token="${{ secrets.ADMIN_UI_TOKEN }}" openai-api-key="${{ secrets.OPENAI_API_KEY }}" session-secret-key="${{ secrets.SESSION_SECRET_KEY }}"
 
           OAUTH_ENV_ARGS=""
           if [ -n "${{ secrets.OAUTH_GITHUB_CLIENT_ID }}" ] && [ -n "${{ secrets.OAUTH_GITHUB_CLIENT_SECRET }}" ]; then
-            az containerapp secret set \
+            retry az containerapp secret set \
               --resource-group "$RESOURCE_GROUP" \
               --name "${{ matrix.app_name }}" \
               --secrets oauth-github-client-id="${{ secrets.OAUTH_GITHUB_CLIENT_ID }}" oauth-github-client-secret="${{ secrets.OAUTH_GITHUB_CLIENT_SECRET }}"
             OAUTH_ENV_ARGS="OAUTH_GITHUB_CLIENT_ID=secretref:oauth-github-client-id OAUTH_GITHUB_CLIENT_SECRET=secretref:oauth-github-client-secret"
           fi
 
-          az containerapp update \
+          retry az containerapp update \
             --resource-group "$RESOURCE_GROUP" \
             --name "${{ matrix.app_name }}" \
             --image "$FULL_IMAGE" \
